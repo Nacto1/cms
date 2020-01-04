@@ -281,10 +281,11 @@ interface ElementInterface extends ComponentInterface
     public static function sources(string $context = null): array;
 
     /**
-     * Returns the available element actions for a given source (if one is provided).
+     * Returns the available [element actions](https://docs.craftcms.com/v3/extend/element-action-types.html) for a
+     * given source.
      *
-     * The actions can either be represented by their class handle (e.g. 'SetStatus'), or by an
-     * [[ElementActionInterface]] instance.
+     * The actions can be represented by their fully qualified class name, a config array with the class name
+     * set to a `type` key, or by an instantiated element action object.
      *
      * ::: tip
      * Element types that extend [[\craft\base\Element]] should override [[\craft\base\Element::defineActions()]]
@@ -295,6 +296,23 @@ interface ElementInterface extends ComponentInterface
      * @return array The available element actions.
      */
     public static function actions(string $source): array;
+
+    /**
+     * Returns the available export options for a given source.
+     *
+     * The exporters can be represented by their fully qualified class name, a config array with the class name
+     * set to a `type` key, or by an instantiated element exporter object.
+     *
+     * ::: tip
+     * Element types that extend [[\craft\base\Element]] should override [[\craft\base\Element::defineExporters()]]
+     * instead of this method.
+     * :::
+     *
+     * @param string $source The selected source’s key.
+     * @return array The available element exporters.
+     * @since 3.4.0
+     */
+    public static function exporters(string $source): array;
 
     /**
      * Defines which element attributes should be searchable.
@@ -557,7 +575,7 @@ interface ElementInterface extends ComponentInterface
     public function getLink();
 
     /**
-     * Returns what the element should be called within the Control Panel.
+     * Returns what the element should be called within the control panel.
      *
      * @return string
      * @since 3.2.0
@@ -579,7 +597,7 @@ interface ElementInterface extends ComponentInterface
     public function getIsEditable(): bool;
 
     /**
-     * Returns the element’s CP edit URL.
+     * Returns the element’s edit URL in the control panel.
      *
      * @return string|null
      */
@@ -994,7 +1012,7 @@ interface ElementInterface extends ComponentInterface
     // -------------------------------------------------------------------------
 
     /**
-     * Returns any attributes that should be included in the element’s DOM representation in the Control Panel.
+     * Returns any attributes that should be included in the element’s DOM representation in the control panel.
      *
      * ::: tip
      * Element types that extend [[\craft\base\Element]] should override [[\craft\base\Element::htmlAttributes()]]

@@ -29,6 +29,8 @@ html.noscroll body {
 }
 
 body {
+  width: 100vw;
+  overflow-x: hidden;
   font-size: 14px;
   line-height: 20px;
   color: $textColor;
@@ -67,6 +69,7 @@ table.editable textarea {
 /* icons */
 .icon:before,
 .menu ul.padded li a.sel:before,
+.menu .flex.padded.sel:before,
 .texticon:before,
 .element:before,
 #help:before,
@@ -423,6 +426,10 @@ strong, b, i em {
 
 .nowrap {
   white-space: nowrap;
+}
+
+.break-word {
+  word-wrap: break-word;
 }
 
 .light {
@@ -865,6 +872,11 @@ ul.icons {
   .flex {
     align-items: flex-start;
   }
+
+  .text {
+    border-radius: $largeBorderRadius !important;
+    box-shadow: none !important;
+  }
 }
 
 .flex {
@@ -941,6 +953,10 @@ ul.icons {
   outline: none;
   color: $textColor;
   background-color: transparentize($inputColor, 0.75);
+
+  &.rounded {
+    border-radius: 17px;
+  }
 
   &:focus,
   &:hover {
@@ -1065,7 +1081,7 @@ ul.icons {
       cursor: default;
     }
 
-    &:not(:last-child) {
+    &:not(.dashed):not(:last-child) {
       @include margin-right(1px);
     }
 
@@ -1234,12 +1250,18 @@ div.btn.submit input {
 .btn.dashed {
   border: 1px dashed $mediumHairlineColor;
   background-color: transparent !important;
-  box-shadow: none !important;
-}
 
-.btn.dashed:not(.disabled):active,
-.btn.dashed:not(.disabled).active {
-  background-color: transparentize($grey200, 0.75) !important;
+  .btngroup &:not(:last-child) {
+    @include border-right(1px solid transparent);
+    @include margin-right(-1px);
+  }
+
+  &:not(.disabled) {
+    &:active,
+    &.active {
+      background-color: transparentize($grey200, 0.75) !important;
+    }
+  }
 }
 
 /* color inputs */
@@ -1743,11 +1765,11 @@ table {
 }
 
 /* elements */
-$baseElementSidePadding: 7px;
-$elementInnerSpacing: 5px;
-$elementStatusPadding: 10px + $elementInnerSpacing;
 $smallThumbSize: 32px;
 $largeThumbSize: 120px;
+$statusSize: 10px;
+$baseElementSidePadding: 7px;
+$elementInnerSpacing: 5px;
 
 .element {
   position: relative;
@@ -1789,6 +1811,8 @@ $largeThumbSize: 120px;
     border-radius: 17px;
 
     &.hasstatus {
+      @include padding-left($baseElementSidePadding + $statusSize + $elementInnerSpacing);
+
       .status {
         position: absolute;
         @include left($baseElementSidePadding);
@@ -1796,36 +1820,27 @@ $largeThumbSize: 120px;
       }
     }
 
-    &.hasstatus:not(.hasthumb) {
-      @include padding-left($baseElementSidePadding + $elementStatusPadding);
-    }
-
     &.hasthumb {
+      @include padding-left(1px + $smallThumbSize + $elementInnerSpacing);
+
       .elementthumb {
         display: flex;
         align-items: center;
         justify-content: center;
         position: absolute;
         top: calc(50% - 16px);
+        @include left(1px);
         width: $smallThumbSize;
         height: $smallThumbSize;
         border-radius: 16px;
         overflow: hidden;
       }
 
-      &:not(.hasstatus) {
-        @include padding-left(1px + $smallThumbSize + $elementInnerSpacing);
-
-        .elementthumb {
-          @include left(1px);
-        }
-      }
-
       &.hasstatus {
-        @include padding-left(1px + $smallThumbSize + $elementInnerSpacing + $elementStatusPadding);
+        @include padding-left(1px + $smallThumbSize + $elementInnerSpacing * 2 + $statusSize);
 
-        .elementthumb {
-          @include left(1px + $elementStatusPadding + $elementInnerSpacing);
+        .status {
+          @include left(1px + $smallThumbSize + $elementInnerSpacing);
         }
       }
     }
@@ -1839,11 +1854,12 @@ $largeThumbSize: 120px;
     border-radius: $smallBorderRadius;
 
     &.hasstatus {
-      @include padding-left($baseElementSidePadding + $elementStatusPadding + px);
+      @include padding-left($baseElementSidePadding + $statusSize + $elementInnerSpacing);
+
       .status {
         position: absolute;
-        @include left(0);
-        top: 130px;
+        @include left($baseElementSidePadding);
+        top: #{$baseElementSidePadding + $largeThumbSize + $elementInnerSpacing + 6};
       }
     }
 
@@ -2014,20 +2030,6 @@ $checkboxPadding: $checkboxSize + 4;
           position: absolute;
           top: $baseElementSidePadding + $largeThumbSize + -$checkboxSize - 2px;
           @include left($baseElementSidePadding + 2px);
-        }
-
-        .element.large.hasthumb {
-          &:not(.hasstatus) {
-            @include padding-left($baseElementSidePadding);
-          }
-
-          &.hasstatus {
-            @include padding-left($baseElementSidePadding + $elementStatusPadding);
-
-            .status {
-              @include left($baseElementSidePadding);
-            }
-          }
         }
 
         @supports (backdrop-filter: blur(10px)) {
@@ -3118,6 +3120,91 @@ ul.tree,
   }
 }
 
+/* inline asset previews */
+
+.preview-thumb-container {
+  position: relative;
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  height: 190px;
+  background-color: $grey900;
+
+  &.loading {
+    &:after {
+      content: '.';
+      font-size: 0;
+      display: block;
+      position: absolute;
+      width: 100%;
+      height: 100%;
+      left: 0;
+      top: 0;
+      background: transparentize($grey900, 0.2) no-repeat 50% 50% url(../images/spinner_dark.gif);
+    }
+  }
+
+  #details & {
+    margin-bottom: 14px;
+    border-radius: $largeBorderRadius;
+    overflow: hidden;
+  }
+
+  .preview-thumb {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 100%;
+
+    img {
+      display: block;
+      max-width: 100%;
+      max-height: 190px;
+    }
+  }
+
+  &.editable {
+    cursor: pointer;
+  }
+
+  .buttons {
+    opacity: 0;
+    position: absolute;
+    top: 10px;
+    @include right(10px);
+    margin: 0;
+    transition: opacity linear 100ms;
+
+    .btn {
+      background-color: $grey600;
+      color: $white;
+      @include light-on-dark-text;
+
+      @supports (backdrop-filter: blur(10px)) {
+        & {
+          background-color: transparentize($grey600, 0.6);
+          backdrop-filter: blur(10px);
+          transition: opacity linear 100ms, backdrop-filter linear 100ms;
+        }
+      }
+    }
+  }
+
+  &:hover .buttons {
+    opacity: 1;
+  }
+
+  &:not(.editable) .buttons .btn:hover {
+    background-color: $grey500;
+
+    @supports (backdrop-filter: blur(10px)) {
+      & {
+        background-color: transparentize($grey500, 0.3);
+      }
+    }
+  }
+}
+
 /* element editor HUDs */
 
 @media (min-width: 440px) {
@@ -3137,54 +3224,8 @@ ul.tree,
     padding: 8px 0;
 
     .meta {
-      .image-preview-container {
-        position: relative;
+      .preview-thumb-container {
         margin: -8px 0 8px;
-        display: flex;
-        flex-direction: row;
-        align-items: center;
-        height: 190px;
-        background-color: $grey900;
-
-        .image-preview {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          width: 100%;
-
-          img {
-            display: block;
-            max-width: 100%;
-            max-height: 190px;
-          }
-        }
-
-        &.editable {
-          cursor: pointer;
-
-          .btn {
-            opacity: 0;
-            position: absolute;
-            top: 10px;
-            @include right(10px);
-            background-color: $grey600;
-            color: $white;
-            @include light-on-dark-text;
-            transition: opacity linear 100ms;
-
-            @supports (backdrop-filter: blur(10px)) {
-              & {
-                background-color: transparentize($grey600, 0.6);
-                backdrop-filter: blur(10px);
-                transition: opacity linear 100ms, backdrop-filter linear 100ms;
-              }
-            }
-          }
-
-          &:hover .btn {
-            opacity: 1;
-          }
-        }
       }
 
       .field {
@@ -3451,6 +3492,28 @@ ul.tree,
     }
   }
 
+  .flex {
+    margin-top: 10px;
+    margin-bottom: 10px;
+    position: relative;
+
+    &.padded {
+      @include margin-left(-14px);
+      @include padding-left(24px);
+
+      &.sel {
+        &:before {
+          position: absolute;
+          top: 36px;
+          @include left(7px);
+          content: 'check';
+          font-size: 14px;
+          color: $lightTextColor;
+        }
+      }
+    }
+  }
+
   hr {
     margin: 5px -14px;
   }
@@ -3706,6 +3769,11 @@ textarea.text.fullwidth {
 .field {
   position: relative;
   margin: 24px 0;
+
+  .flex > & {
+    margin-top: 0;
+    margin-bottom: 0;
+  }
 
   & > .status-badge {
     position: absolute;
@@ -4613,7 +4681,7 @@ $titlebarBorderRadius: $largeBorderRadius - 1;
     width: calc(100% + 28px);
     box-sizing: border-box;
     border-radius: $titlebarBorderRadius $titlebarBorderRadius 0 0;
-    @include padding(5px, 70px, 5px, 33px);
+    @include padding(5px, 70px, 5px, 35px);
     border-bottom: 1px solid $hairlineColor;
     background-color: $grey050;
     color: $lightTextColor;
@@ -4888,6 +4956,11 @@ only screen and (min-resolution: 1.5dppx) {
   .sel .element.loading:after,
   .element.loading.sel:after {
     background-image: url(../images/spinner_element_2x.gif);
+    background-size: 20px;
+  }
+
+  .preview-thumb-container.loading:after {
+    background-image: url(../images/spinner_dark_2x.gif);
     background-size: 20px;
   }
 

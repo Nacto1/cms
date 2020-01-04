@@ -43,6 +43,7 @@ use craft\gql\queries\User as UserQuery;
 use craft\gql\TypeLoader;
 use craft\gql\TypeManager;
 use craft\gql\types\DateTime;
+use craft\gql\types\Number;
 use craft\gql\types\Query;
 use craft\gql\types\QueryArgument;
 use craft\helpers\Db;
@@ -224,6 +225,13 @@ class Gql extends Component
      * @since 3.4.0
      */
     const CONFIG_GQL_SCHEMAS_KEY = 'graphql.schemas';
+
+    /**
+     * The field name to use when fetching count of related elements
+     *
+     * @since 3.4.0
+     */
+    const GRAPHQL_COUNT_FIELD = '_count';
 
     /**
      * @var Schema Currently loaded schema definition
@@ -690,7 +698,7 @@ class Gql extends Component
         ];
 
         $configPath = self::CONFIG_GQL_SCHEMAS_KEY . '.' . $schema->uid;
-        $projectConfig->set($configPath, $configData);
+        $projectConfig->set($configPath, $configData, "Save GraphQL schema “{$schema->name}”");
 
         return true;
     }
@@ -774,7 +782,7 @@ class Gql extends Component
      */
     public function deleteSchema(GqlSchema $scope): bool
     {
-        Craft::$app->getProjectConfig()->remove(self::CONFIG_GQL_SCHEMAS_KEY . '.' . $scope->uid);
+        Craft::$app->getProjectConfig()->remove(self::CONFIG_GQL_SCHEMAS_KEY . '.' . $scope->uid, "Delete the “{$scope->name}” GraphQL schema");
         return true;
     }
 
@@ -912,6 +920,7 @@ class Gql extends Component
         $typeList = [
             // Scalars
             DateTime::class,
+            Number::class,
             QueryArgument::class,
 
             // Interfaces

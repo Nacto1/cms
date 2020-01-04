@@ -8,7 +8,9 @@
 namespace craft\controllers;
 
 use Craft;
+use craft\assetpreviews\NoPreview;
 use craft\base\AssetPreview;
+use craft\base\Element;
 use craft\base\Volume;
 use craft\elements\Asset;
 use craft\errors\AssetException;
@@ -20,13 +22,17 @@ use craft\helpers\Assets;
 use craft\helpers\Db;
 use craft\helpers\Image;
 use craft\helpers\StringHelper;
+use craft\helpers\UrlHelper;
+use craft\i18n\Formatter;
 use craft\image\Raster;
 use craft\models\VolumeFolder;
 use craft\web\Controller;
 use craft\web\UploadedFile;
 use yii\base\ErrorException;
 use yii\base\Exception;
+use yii\base\NotSupportedException;
 use yii\web\BadRequestHttpException;
+use yii\web\ForbiddenHttpException;
 use yii\web\HttpException;
 use yii\web\NotFoundHttpException;
 use yii\web\Response;
@@ -57,12 +63,213 @@ class AssetsController extends Controller
     // =========================================================================
 
     /**
+     * Edits an asset.
+     *
+     * @param int $assetId The asset ID
+     * @param Asset|null $asset The asset being edited, if there were any validation errors.
+     * @param string|null $site The site handle, if specified.
+     * @return Response
+     * @throws BadRequestHttpException if `$assetId` is invalid
+     * @throws ForbiddenHttpException if the user isn't permitted to edit the asset
+     * @since 3.4.0
+     */
+    public function actionEditAsset(int $assetId, Asset $asset = null, string $site = null): Response
+    {
+        $sitesService = Craft::$app->getSites();
+        $editableSiteIds = $sitesService->getEditableSiteIds();
+        if ($site !== null) {
+            $siteHandle = $site;
+            $site = $sitesService->getSiteByHandle($siteHandle);
+            if (!$site) {
+                throw new BadRequestHttpException("Invalid site handle: {$siteHandle}");
+            }
+            if (!in_array($site->id, $editableSiteIds, false)) {
+                throw new ForbiddenHttpException('User not permitted to edit content in this site');
+            }
+        } else {
+            $site = $sitesService->getCurrentSite();
+            if (!in_array($site->id, $editableSiteIds, false)) {
+                $site = $sitesService->getSiteById($editableSiteIds[0]);
+            }
+        }
+
+        if ($asset === null) {
+            $asset = Asset::find()
+                ->id($assetId)
+                ->siteId($site->id)
+                ->one();
+            if ($asset === null) {
+                throw new BadRequestHttpException("Invalid asset ID: {$assetId}");
+            }
+        }
+
+        $this->_requirePermissionByAsset('saveAssetInVolume', $asset);
+        $this->_requirePeerPermissionByAsset('editPeerFilesInVolume', $asset);
+
+        /** @var Volume $volume */
+        $volume = $asset->getVolume();
+
+        $crumbs = [
+            [
+                'label' => Craft::t('app', 'Assets'),
+                'url' => UrlHelper::url('assets')
+            ],
+            [
+                'label' => Craft::t('site', $volume->name),
+                'url' => UrlHelper::url("assets/{$volume->handle}")
+            ],
+        ];
+
+        // See if we can show a thumbnail
+        try {
+            // Is the image editable, and is the user allowed to edit?
+            $userSession = Craft::$app->getUser();
+
+            $editable = (
+                $asset->getSupportsImageEditor() &&
+                $userSession->checkPermission("editImagesInVolume:{$volume->uid}") &&
+                ($userSession->getId() == $asset->uploaderId || $userSession->checkPermission("editPeerImagesInVolume:{$volume->uid}"))
+            );
+
+            $previewHtml = '<div id="preview-thumb-container" class="preview-thumb-container">' .
+                '<div class="preview-thumb">' .
+                $asset->getPreviewThumbImg(350, 190) .
+                '</div>' .
+                '<div class="buttons">';
+
+            $previewer = Craft::$app->getAssets()->getAssetPreview($asset);
+
+            if (!$previewer instanceof NoPreview) {
+                $previewHtml .= '<div class="btn" id="preview-btn">' . Craft::t('app', 'Preview') . '</div>';
+            }
+
+            if ($editable) {
+                $previewHtml .= '<div class="btn" id="edit-btn">' . Craft::t('app', 'Edit') . '</div>';
+            }
+
+            $previewHtml .= '</div></div>';
+        } catch (NotSupportedException $e) {
+            // NBD
+            $previewHtml = '';
+        }
+
+        // See if the user is allowed to replace the file
+        $userSession = Craft::$app->getUser();
+        $canReplaceFile = (
+            $userSession->checkPermission("deleteFilesAndFoldersInVolume:{$volume->uid}") &&
+            ($userSession->getId() == $asset->uploaderId || $userSession->checkPermission("deletePeerFilesInVolume:{$volume->uid}"))
+        );
+
+        return $this->renderTemplate('assets/_edit', [
+            'element' => $asset,
+            'title' => trim($asset->title) ?: Craft::t('app', 'Edit Asset'),
+            'crumbs' => $crumbs,
+            'previewHtml' => $previewHtml,
+            'formattedSize' => $asset->getFormattedSize(0),
+            'formattedSizeInBytes' => $asset->getFormattedSizeInBytes(false),
+            'dimensions' => $asset->getDimensions(),
+            'canReplaceFile' => $canReplaceFile,
+        ]);
+    }
+
+    /**
+     * Returns an updated preview image for an asset.
+     *
+     * @return Response
+     * @throws BadRequestHttpException
+     * @since 3.4.0
+     */
+    public function actionPreviewThumb(): Response
+    {
+        $this->requireCpRequest();
+        $request = Craft::$app->getRequest();
+        $assetId = $request->getRequiredParam('assetId');
+        $width = $request->getRequiredParam('width');
+        $height = $request->getRequiredParam('height');
+
+        $asset = Asset::findOne($assetId);
+        if ($asset === null) {
+            throw new BadRequestHttpException("Invalid asset ID: {$assetId}");
+        }
+
+        return $this->asJson([
+            'img' => $asset->getPreviewThumbImg($width, $height),
+        ]);
+    }
+
+    /**
+     * Saves an asset.
+     *
+     * @return Response
+     * @since 3.4.0
+     */
+    public function actionSaveAsset(): Response
+    {
+        if (UploadedFile::getInstanceByName('assets-upload') !== null) {
+            Craft::$app->getDeprecator()->log(__METHOD__, 'Uploading new files via assets/save-asset has been deprecated. Use assets/upload instead.');
+            return $this->runAction('upload');
+        }
+
+        $request = Craft::$app->getRequest();
+        $assetId = $request->getRequiredParam('assetId');
+        $asset = Asset::findOne($assetId);
+        if ($asset === null) {
+            throw new BadRequestHttpException("Invalid asset ID: {$assetId}");
+        }
+
+        $this->_requirePermissionByAsset('saveAssetInVolume', $asset);
+        $this->_requirePeerPermissionByAsset('editPeerFilesInVolume', $asset);
+
+        $asset->title = $request->getParam('title') ?? $asset->title;
+        $asset->newFilename = $request->getParam('filename');
+
+        $fieldsLocation = $request->getParam('fieldsLocation') ?? 'fields';
+        $asset->setFieldValuesFromRequest($fieldsLocation);
+
+        // Save the asset
+        $asset->setScenario(Element::SCENARIO_LIVE);
+
+        if (!Craft::$app->getElements()->saveElement($asset)) {
+            if ($request->getAcceptsJson()) {
+                return $this->asJson([
+                    'success' => false,
+                    'errors' => $asset->getErrors(),
+                ]);
+            }
+
+            Craft::$app->getSession()->setError(Craft::t('app', 'Couldn’t save asset.'));
+
+            // Send the asset back to the template
+            Craft::$app->getUrlManager()->setRouteParams([
+                'asset' => $asset
+            ]);
+
+            return null;
+        }
+
+        if ($request->getAcceptsJson()) {
+            return $this->asJson([
+                'success' => true,
+                'id' => $asset->id,
+                'title' => $asset->title,
+                'url' => $asset->getUrl(),
+                'cpEditUrl' => $asset->getCpEditUrl()
+            ]);
+        }
+
+        Craft::$app->getSession()->setNotice(Craft::t('app', 'Asset saved.'));
+
+        return $this->redirectToPostedUrl($asset);
+    }
+
+    /**
      * Upload a file
      *
      * @return Response
      * @throws BadRequestHttpException for reasons
+     * @since 3.4.0
      */
-    public function actionSaveAsset(): Response
+    public function actionUpload(): Response
     {
         $uploadedFile = UploadedFile::getInstanceByName('assets-upload');
         $request = Craft::$app->getRequest();
@@ -115,6 +322,7 @@ class AssetsController extends Controller
             $asset->newFolderId = $folder->id;
             $asset->volumeId = $folder->volumeId;
             $asset->avoidFilenameConflicts = true;
+            $asset->uploaderId = Craft::$app->getUser()->getId();
             $asset->setScenario(Asset::SCENARIO_CREATE);
 
             $result = Craft::$app->getElements()->saveElement($asset);
@@ -191,6 +399,7 @@ class AssetsController extends Controller
 
         $this->_requirePermissionByAsset('saveAssetInVolume', $assetToReplace ?: $sourceAsset);
         $this->_requirePermissionByAsset('deleteFilesAndFoldersInVolume', $assetToReplace ?: $sourceAsset);
+        $this->_requirePeerPermissionByAsset('replacePeerFilesInVolume', $assetToReplace ?: $sourceAsset);
 
         try {
             // Handle the Element Action
@@ -236,7 +445,15 @@ class AssetsController extends Controller
             return $this->asErrorJson($e->getMessage());
         }
 
-        return $this->asJson(['success' => true, 'assetId' => $assetId]);
+        return $this->asJson([
+            'success' => true,
+            'assetId' => $assetId,
+            'filename' => $assetToReplace->filename,
+            'formattedSize' => $assetToReplace->getFormattedSize(0),
+            'formattedSizeInBytes' => $assetToReplace->getFormattedSizeInBytes(false),
+            'formattedDateUpdated' => Craft::$app->getFormatter()->asDatetime($assetToReplace->dateUpdated, Formatter::FORMAT_WIDTH_SHORT),
+            'dimensions' => $assetToReplace->getDimensions(),
+        ]);
     }
 
     /**
@@ -305,8 +522,7 @@ class AssetsController extends Controller
         }
 
         // Check if it's possible to delete objects in the target Volume.
-        $this->_requirePermissionByFolder('deleteFilesAndFoldersInVolume',
-            $folder);
+        $this->_requirePermissionByFolder('deleteFilesAndFoldersInVolume', $folder);
         try {
             $assets->deleteFoldersByIds($folderId);
         } catch (AssetException $exception) {
@@ -337,6 +553,7 @@ class AssetsController extends Controller
 
         // Check if it's possible to delete objects in the target Volume.
         $this->_requirePermissionByAsset('deleteFilesAndFoldersInVolume', $asset);
+        $this->_requirePeerPermissionByAsset('deletePeerFilesInVolume', $asset);
 
         try {
             Craft::$app->getElements()->deleteElement($asset);
@@ -417,8 +634,10 @@ class AssetsController extends Controller
         $filename = $request->getBodyParam('filename', $asset->filename);
 
         // Check if it's possible to delete objects in source Volume and save Assets in target Volume.
-        $this->_requirePermissionByAsset('deleteFilesAndFoldersInVolume', $asset);
         $this->_requirePermissionByFolder('saveAssetInVolume', $folder);
+        $this->_requirePermissionByAsset('deleteFilesAndFoldersInVolume', $asset);
+        $this->_requirePeerPermissionByAsset('editPeerFilesInVolume', $asset);
+        $this->_requirePeerPermissionByAsset('deletePeerFilesInVolume', $asset);
 
         if ($request->getBodyParam('force')) {
             // Check for a conflicting Asset
@@ -658,6 +877,7 @@ class AssetsController extends Controller
             // Do what you want with your own photo.
             if ($asset->id != Craft::$app->getUser()->getIdentity()->photoId) {
                 $this->_requirePermissionByAsset('editImagesInVolume', $asset);
+                $this->_requirePeerPermissionByAsset('editPeerImagesInVolume', $asset);
             }
 
             // Verify parameter adequacy
@@ -802,6 +1022,7 @@ class AssetsController extends Controller
 
         foreach ($assets as $asset) {
             $this->_requirePermissionByAsset('viewVolume', $asset);
+            $this->_requirePeerPermissionByAsset('viewPeerFilesInVolume', $asset);
         }
 
         // If only one asset was selected, send it back unzipped
@@ -975,6 +1196,7 @@ class AssetsController extends Controller
      *
      * @param string $permissionName Name of the permission to require.
      * @param Asset $asset Asset on the Volume on which to require the permission.
+     * @throws ForbiddenHttpException
      */
     private function _requirePermissionByAsset(string $permissionName, Asset $asset)
     {
@@ -993,10 +1215,28 @@ class AssetsController extends Controller
     }
 
     /**
+     * Require a peer volume permission, if an asset wasn't uploaded by the current user.
+     *
+     * @param string $permissionName Name of the permission to require.
+     * @param Asset $asset Asset on the volume on which to require the permission.
+     * @throws ForbiddenHttpException
+     */
+    private function _requirePeerPermissionByAsset(string $permissionName, Asset $asset)
+    {
+        if ($asset->volumeId) {
+            $userId = Craft::$app->getUser()->getId();
+            if ($asset->uploaderId != $userId) {
+                $this->_requirePermissionByAsset($permissionName, $asset);
+            }
+        }
+    }
+
+    /**
      * Require an Assets permissions.
      *
      * @param string $permissionName Name of the permission to require.
      * @param VolumeFolder $folder Folder on the Volume on which to require the permission.
+     * @throws ForbiddenHttpException
      */
     private function _requirePermissionByFolder(string $permissionName, VolumeFolder $folder)
     {
@@ -1019,6 +1259,7 @@ class AssetsController extends Controller
      *
      * @param string $permissionName Name of the permission to require.
      * @param string $volumeUid The volume uid on which to require the permission.
+     * @throws ForbiddenHttpException
      */
     private function _requirePermissionByVolumeId(string $permissionName, string $volumeUid)
     {
@@ -1050,4 +1291,3 @@ class AssetsController extends Controller
         return $tempPath;
     }
 }
-

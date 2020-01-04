@@ -1,4 +1,4 @@
-/*!   - 2019-12-06 */
+/*!   - 2019-12-23 */
 (function($){
 
 /** global: Craft */
@@ -1970,6 +1970,7 @@ Craft.BaseElementIndex = Garnish.Base.extend(
         $selectAllContainer: null,
         $selectAllCheckbox: null,
         showingActionTriggers: false,
+        exporters: null,
         _$detachedToolbarItems: null,
         _$triggers: null,
 
@@ -3488,6 +3489,17 @@ Craft.BaseElementIndex = Garnish.Base.extend(
                 this.$selectAllContainer.remove();
             }
 
+            // Exporters setup
+            // -------------------------------------------------------------
+
+            this.exporters = response.exporters;
+
+            if (this.exporters && this.exporters.length) {
+                this.$exportBtn.removeClass('hidden');
+            } else {
+                this.$exportBtn.addClass('hidden');
+            }
+
             // Create the view
             // -------------------------------------------------------------
 
@@ -3600,12 +3612,37 @@ Craft.BaseElementIndex = Garnish.Base.extend(
                 'class': 'export-form'
             });
 
-            var $limitField = Craft.ui.createTextField({
-                label: Craft.t('app', 'Limit'),
-                placeholder: Craft.t('app', 'No limit'),
-                type: 'number',
-                min: 1
+            var typeOptions = [];
+            for (var i = 0; i < this.exporters.length; i++) {
+                typeOptions.push({ label: this.exporters[i].name, value: this.exporters[i].type });
+            }
+            var $typeField = Craft.ui.createSelectField({
+                label: Craft.t('app', 'Export Type'),
+                options: typeOptions,
+                'class': 'fullwidth',
             }).appendTo($form);
+
+            var $formatField = Craft.ui.createSelectField({
+                label: Craft.t('app', 'Format'),
+                options: [
+                    { label: 'CSV', value: 'csv' },
+                    { label: 'JSON', value: 'json' },
+                    { label: 'XML', value: 'xml' },
+                ],
+                'class': 'fullwidth',
+            }).appendTo($form);
+
+            // Only show the Limit field if there aren't any selected elements
+            var selectedElementIds = this.view.getSelectedElementIds();
+
+            if (!selectedElementIds.length) {
+                var $limitField = Craft.ui.createTextField({
+                    label: Craft.t('app', 'Limit'),
+                    placeholder: Craft.t('app', 'No limit'),
+                    type: 'number',
+                    min: 1
+                }).appendTo($form);
+            }
 
             $('<input/>', {
                 type: 'submit',
@@ -3637,9 +3674,16 @@ Craft.BaseElementIndex = Garnish.Base.extend(
                 var params = this.getViewParams();
                 delete params.criteria.limit;
 
-                var limit = parseInt($limitField.find('input').val());
-                if (limit && !isNaN(limit)) {
-                    params.criteria.limit = limit;
+                params.type = $typeField.find('select').val();
+                params.format = $formatField.find('select').val();
+
+                if (selectedElementIds.length) {
+                    params.criteria.id = selectedElementIds;
+                } else {
+                    var limit = parseInt($limitField.find('input').val());
+                    if (limit && !isNaN(limit)) {
+                        params.criteria.limit = limit;
+                    }
                 }
 
                 Craft.postActionRequest('element-indexes/create-export-token', params, $.proxy(function(response, textStatus) {
@@ -4777,7 +4821,7 @@ Craft.BaseElementSelectorModal = Garnish.Modal.extend(
             hideOnSelect: true,
             onCancel: $.noop,
             onSelect: $.noop,
-            hideIndexSidebar: false
+            hideSidebar: false
         }
     });
 
@@ -5134,7 +5178,7 @@ Craft.AssetEditor = Craft.BaseElementEditor.extend(
             this.base(response);
 
             if (this.$element.data('id')) {
-                var $imageEditorTrigger = this.$fieldsContainer.find('> .meta > .image-preview-container.editable');
+                var $imageEditorTrigger = this.$fieldsContainer.find('> .meta > .preview-thumb-container.editable');
 
                 if ($imageEditorTrigger.length) {
                     this.addListener($imageEditorTrigger, 'click', 'showImageEditor');
@@ -5228,12 +5272,14 @@ Craft.AssetImageEditor = Garnish.Modal.extend(
         scaleFactor: 1,
         flipData: {},
         focalPointState: false,
-        croppingConstraint: false,
         spinnerInterval: null,
         maxImageSize: null,
         lastLoadedDimensions: null,
         imageIsLoading: false,
         mouseMoveEvent: null,
+        croppingConstraint: false,
+        constraintOrientation: 'landscape',
+        showingCustomConstraint: false,
 
         // Rendering proxy functions
         renderImage: null,
@@ -5776,15 +5822,117 @@ Craft.AssetImageEditor = Garnish.Modal.extend(
                 }
             });
 
-            // Cropper constraint menu
-            var constraintMenu = new Garnish.MenuBtn($('.crop .menubtn', this.$container), {
-                onOptionSelect: function (option) {
-                    $('.constraint', this.$container).html($(option).html());
-                    this.setCroppingConstraint($(option).data('constraint'));
-                    this.enforceCroppingConstraint();
-                }.bind(this)
-            });
-            constraintMenu.menu.$container.addClass('dark');
+            this.addListener($('.constraint-buttons .constraint', this.$container), 'click', this._handleConstraintClick);
+            this.addListener($('.orientation input', this.$container), 'click', this._handleOrientationClick);
+            this.addListener($('.constraint-buttons .custom-input input', this.$container), 'keyup', this._applyCustomConstraint);
+        },
+
+        /**
+         * Handle a constraint button click.
+         *
+         * @param ev
+         */
+        _handleConstraintClick: function (ev) {
+            var constraint = $(ev.currentTarget).data('constraint');
+            $target = $(ev.currentTarget);
+            $target.siblings().removeClass('active');
+            $target.addClass('active');
+
+            if (constraint == 'custom') {
+                this._showCustomConstraint();
+                this._applyCustomConstraint();
+                return;
+            }
+
+            this._hideCustomConstraint();
+
+            this.setCroppingConstraint(constraint);
+            this.enforceCroppingConstraint();
+
+        },
+
+        /**
+         * Handle an orientation switch click.
+         *
+         * @param ev
+         */
+        _handleOrientationClick: function (ev) {
+
+            if (ev.currentTarget.value === this.constraintOrientation) {
+                return;
+            }
+            this.constraintOrientation = ev.currentTarget.value;
+
+            var $constraints = $('.constraint.flip', this.$container);
+
+            for (var i = 0; i < $constraints.length; i++) {
+                var $constraint = $($constraints[i]);
+                $constraint.data('constraint', 1 / $constraint.data('constraint'));
+                $constraint.html($constraint.html().split(':').reverse().join(':'));
+            }
+
+            $constraints.filter('.active').click();
+        },
+
+        /**
+         * Apply the custom ratio set in the inputs
+         */
+        _applyCustomConstraint: function () {
+            var constraint = this._getCustomConstraint();
+
+            if (constraint.w > 0 && constraint.h > 0) {
+                this.setCroppingConstraint(constraint.w / constraint.h);
+                this.enforceCroppingConstraint();
+            }
+        },
+
+        /**
+         * Get the custom constraint.
+         *
+         * @returns {{w: *, h: *}}
+         */
+        _getCustomConstraint: function () {
+            var w = parseFloat($('.custom-constraint-w').val());
+            var h = parseFloat($('.custom-constraint-h').val());
+            return {
+                w: isNaN(w) ? 0 : w,
+                h: isNaN(h) ? 0 : h,
+            }
+        },
+
+        /**
+         * Set the custom constraint.
+         *
+         * @param w
+         * @param h
+         */
+        _setCustomConstraint: function (w, h) {
+            $('.custom-constraint-w').val(parseFloat(w));
+            $('.custom-constraint-h').val(parseFloat(h));
+        },
+
+        /**
+         * Hide the custom constraint inputs.
+         */
+        _hideCustomConstraint: function () {
+            this.showingCustomConstraint = false;
+            $('.constraint.custom .custom-input', this.$container).addClass('hidden');
+            $('.constraint.custom .custom-label', this.$container).removeClass('hidden');
+            $('.orientation', this.$container).removeClass('hidden');
+        },
+
+        /**
+         * Show the custom constraint inputs.
+         */
+        _showCustomConstraint: function () {
+            if (this.showingCustomConstraint) {
+                return;
+            }
+
+            this.showingCustomConstraint = true;
+            $('.constraint.custom .custom-input', this.$container).removeClass('hidden');
+            $('.constraint.custom .custom-label', this.$container).addClass('hidden');
+            $('.orientation', this.$container).addClass('hidden');
         },
 
         /**
@@ -7110,23 +7258,25 @@ Craft.AssetImageEditor = Garnish.Modal.extend(
 
             switch (constraint) {
                 case 'none':
-                    constraint = false;
+                    this.croppingConstraint = false;
                     break;
 
                 case 'original':
-                    constraint = this.originalWidth / this.originalHeight;
+                    this.croppingConstraint = this.originalWidth / this.originalHeight;
                     break;
 
                 case 'current':
-                    constraint = this.clipper.width / this.clipper.height;
+                    this.croppingConstraint = this.clipper.width / this.clipper.height;
                     break;
 
+                case 'custom':
+
+                    break;
                 default:
-                    constraint = parseFloat(constraint);
+                    this.croppingConstraint = parseFloat(constraint);
+
                     break;
             }
-
-            this.croppingConstraint = constraint;
         },
 
         /**
@@ -7195,6 +7345,7 @@ Craft.AssetImageEditor = Garnish.Modal.extend(
                     this._redrawCropperElements();
                     this.animationInProgress = false;
                     this.renderCropper();
+                    this.storeCropperState();
                 }.bind(this)
             });
         },
@@ -7884,7 +8035,7 @@ Craft.AssetIndex = Craft.BaseElementIndex.extend(
                 helperOpacity: 0.75,
 
                 filter: $.proxy(function() {
-                    return this.view.getSelectedElements();
+                    return this.view.getSelectedElements().has('div.element[data-movable]');
                 }, this),
 
                 helper: $.proxy(function($file) {
@@ -7892,15 +8043,22 @@ Craft.AssetIndex = Craft.BaseElementIndex.extend(
                 }, this),
 
                 dropTargets: $.proxy(function() {
+                    // Which "can-move-to" attribute should we be checking
+                    var attr;
+                    if (this._assetDrag.$draggee && this._assetDrag.$draggee.has('.element[data-peer-file]').length) {
+                        attr = 'can-move-peer-files-to';
+                    } else {
+                        attr = 'can-move-to';
+                    }
+
                     var targets = [];
 
                     for (var i = 0; i < this.$sources.length; i++) {
                         // Make sure it's a volume folder
                         var $source = this.$sources.eq(i);
-                        if (!this._getFolderUidFromSourceKey($source.data('key'))) {
-                            continue;
+                        if ($source.data(attr)) {
+                            targets.push($source);
                         }
-                        targets.push($source);
                     }
 
                     return targets;
@@ -8380,6 +8538,21 @@ Craft.AssetIndex = Craft.BaseElementIndex.extend(
         },
 
         /**
+         * Returns the root level source for a source.
+         *
+         * @param $source
+         * @returns {*}
+         * @private
+         */
+        _getRootSource: function($source) {
+            var $parent;
+            while (($parent = this._getParentSource($source)) && $parent.length) {
+                $source = $parent;
+            }
+            return $source;
+        },
+
+        /**
          * Get parent source for a source.
          *
          * @param $source
@@ -8427,7 +8600,7 @@ Craft.AssetIndex = Craft.BaseElementIndex.extend(
             this.progressBar = new Craft.ProgressBar(this.$main, true);
 
             var options = {
-                url: Craft.getActionUrl('assets/save-asset'),
+                url: Craft.getActionUrl('assets/upload'),
                 fileInput: this.$uploadInput,
                 dropZone: this.$container
             };
@@ -8458,17 +8631,43 @@ Craft.AssetIndex = Craft.BaseElementIndex.extend(
             this.base();
         },
 
+        getDefaultSourceKey: function() {
+            // Did they request a specific volume in the URL?
+            if (this.settings.context === 'index' && typeof defaultVolumeHandle !== 'undefined') {
+                for (var i = 0; i < this.$sources.length; i++) {
+                    var $source = $(this.$sources[i]);
+                    if ($source.data('volume-handle') === defaultVolumeHandle) {
+                        return $source.data('key');
+                    }
+                }
+            }
+
+            return this.base();
+        },
+
         onSelectSource: function() {
             var $source = this._getSourceByKey(this.sourceKey);
             var folderId = $source.data('folder-id');
 
-            if (folderId && this.$source.attr('data-upload')) {
+            if (folderId && this.$source.attr('data-can-upload')) {
                 this.uploader.setParams({
                     folderId: this.$source.attr('data-folder-id')
                 });
                 this.$uploadButton.removeClass('disabled');
             } else {
                 this.$uploadButton.addClass('disabled');
+            }
+
+            // Update the URL if we're on the Assets index
+            // ---------------------------------------------------------------------
+
+            if (this.settings.context === 'index' && typeof history !== 'undefined') {
+                var uri = 'assets';
+                var $rootSource = this._getRootSource($source);
+                if ($rootSource && $rootSource.data('volume-handle')) {
+                    uri += '/' + $rootSource.data('volume-handle');
+                }
+                history.replaceState({}, '', Craft.getUrl(uri));
             }
 
             this.base();
@@ -8617,7 +8816,7 @@ Craft.AssetIndex = Craft.BaseElementIndex.extend(
 
         /**
          * Update the elements after an upload, setting sort to dateModified descending, if not using index.
-         * 
+         *
          * @private
          */
         _updateAfterUpload: function () {
@@ -8720,7 +8919,7 @@ Craft.AssetIndex = Craft.BaseElementIndex.extend(
                     this._assetDrag.removeAllItems();
                 }
 
-                this._assetDrag.addItems($newElements);
+                this._assetDrag.addItems($newElements.has('div.element[data-movable]'));
             }
 
             // See if we have freshly uploaded files to add to selection
@@ -8971,8 +9170,10 @@ Craft.AssetIndex = Craft.BaseElementIndex.extend(
                             '<li>' +
                             '<a data-key="' + $parentFolder.data('key') + '/folder:' + data.folderUid + '"' +
                             (Garnish.hasAttr($parentFolder, 'data-has-thumbs') ? ' data-has-thumbs' : '') +
-                            ' data-upload="' + $parentFolder.attr('data-upload') + '"' +
                             ' data-folder-id="' + data.folderId + '"' +
+                            ' data-can-upload="' + $parentFolder.attr('data-can-upload') + '"' +
+                            ' data-can-move-to="' + $parentFolder.attr('data-can-move-to') + '"' +
+                            ' data-can-move-peer-files-to="' + $parentFolder.attr('data-can-move-peer-files-to') + '"' +
                             '>' +
                             data.folderName +
                             '</a>' +
@@ -9271,7 +9472,7 @@ Craft.AssetSelectInput = Craft.BaseElementSelectInput.extend(
             this.progressBar = new Craft.ProgressBar($('<div class="progress-shade"></div>').appendTo(this.$container));
 
             var options = {
-                url: Craft.getActionUrl('assets/save-asset'),
+                url: Craft.getActionUrl('assets/upload'),
                 dropZone: this.$container,
                 formData: {
                     fieldId: this.settings.fieldId,
@@ -9728,7 +9929,7 @@ Craft.AuthManager = Garnish.Base.extend(
          */
         checkRemainingSessionTime: function(extendSession) {
             $.ajax({
-                url: Craft.getActionUrl('users/get-remaining-session-time', (extendSession ? null : 'dontExtendSession=1')),
+                url: Craft.getActionUrl('users/session-info', (extendSession ? null : 'dontExtendSession=1')),
                 type: 'GET',
                 dataType: 'json',
                 complete: $.proxy(function(jqXHR, textStatus) {
@@ -9754,7 +9955,7 @@ Craft.AuthManager = Garnish.Base.extend(
             this.remainingSessionTime = parseInt(remainingSessionTime);
 
             // Are we within the warning window?
-            if (this.remainingSessionTime !== -1 && this.remainingSessionTime < Craft.AuthManager.minSafeSessiotTime) {
+            if (this.remainingSessionTime !== -1 && this.remainingSessionTime < Craft.AuthManager.minSafeSessionTime) {
                 // Is there still time to renew the session?
                 if (this.remainingSessionTime) {
                     if (!this.showingLogoutWarningModal) {
@@ -9790,9 +9991,9 @@ Craft.AuthManager = Garnish.Base.extend(
                 this.hideLogoutWarningModal();
                 this.hideLoginModal();
 
-                // Will be be within the minSafeSessiotTime before the next update?
-                if (this.remainingSessionTime !== -1 && this.remainingSessionTime < (Craft.AuthManager.minSafeSessiotTime + Craft.AuthManager.checkInterval)) {
-                    this.setCheckRemainingSessionTimer(this.remainingSessionTime - Craft.AuthManager.minSafeSessiotTime + 1);
+                // Will be be within the minSafeSessionTime before the next update?
+                if (this.remainingSessionTime !== -1 && this.remainingSessionTime < (Craft.AuthManager.minSafeSessionTime + Craft.AuthManager.checkInterval)) {
+                    this.setCheckRemainingSessionTimer(this.remainingSessionTime - Craft.AuthManager.minSafeSessionTime + 1);
                 }
                 else {
                     this.setCheckRemainingSessionTimer(Craft.AuthManager.checkInterval);
@@ -10078,7 +10279,7 @@ Craft.AuthManager = Garnish.Base.extend(
     },
     {
         checkInterval: 60,
-        minSafeSessiotTime: 120
+        minSafeSessionTime: 120
     });
 
 /** global: Craft */
@@ -18184,7 +18385,9 @@ Craft.PreviewFileModal = Garnish.Modal.extend(
          */
         _onHide: function () {
             Craft.PreviewFileModal.openInstance = null;
-            this.elementSelect.focusItem(this.elementSelect.$focusedItem);
+            if (this.elementSelect) {
+                this.elementSelect.focusItem(this.elementSelect.$focusedItem);
+            }
 
             this.$shade.remove();
 
@@ -20998,6 +21201,193 @@ Craft.ui =
 
         createDateField: function(config) {
             return this.createField(this.createDateInput(config), config);
+        },
+
+        createDateRangePicker: function(config) {
+            var now = new Date();
+            var today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+            config = $.extend({
+                options: [
+                    'today',
+                    'thisWeek',
+                    'thisMonth',
+                    'thisYear',
+                    'past7Days',
+                    'past30Days',
+                    'pastYear',
+                ],
+                onChange: $.noop,
+            }, config);
+
+            var $menu = $('<div/>', {'class': 'menu'});
+            var $ul = $('<ul/>', {'class': 'padded'}).appendTo($menu);
+            var menu = new Garnish.Menu($menu);
+
+            $('<li/>')
+                .append($('<a/>', {
+                    'class': 'sel',
+                    text: Craft.t('app', 'All'),
+                }))
+                .appendTo($ul);
+
+            var option;
+            for (var i = 0; i < config.options.length; i++) {
+                option = config.options[i];
+                switch (option) {
+                    case 'today':
+                        option = {
+                            label: Craft.t('app', 'Today'),
+                            startDate: today,
+                            endDate: today,
+                        };
+                        break;
+                    case 'thisWeek':
+                        var firstDayOffset = now.getDay() - Craft.datepickerOptions.firstDay;
+                        if (firstDayOffset < 0) {
+                            firstDayOffset += 7;
+                        }
+                        option = {
+                            label: Craft.t('app', 'This week'),
+                            startDate: new Date(now.getFullYear(), now.getMonth(), now.getDate() - firstDayOffset),
+                            endDate: today,
+                        };
+                        break;
+                    case 'thisMonth':
+                        option = {
+                            label: Craft.t('app', 'This month'),
+                            startDate: new Date(now.getFullYear(), now.getMonth()),
+                            endDate: today,
+                        };
+                        break;
+                    case 'thisYear':
+                        option = {
+                            label: Craft.t('app', 'This year'),
+                            startDate: new Date(now.getFullYear(), 0),
+                            endDate: today,
+                        };
+                        break;
+                    case 'past7Days':
+                        option = {
+                            label: Craft.t('app', 'Past {num} days', {num: 7}),
+                            startDate: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7),
+                            endDate: today,
+                        };
+                        break;
+                    case 'past30Days':
+                        option = {
+                            label: Craft.t('app', 'Past {num} days', {num: 30}),
+                            startDate: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30),
+                            endDate: today,
+                        };
+                        break;
+                    case 'pastYear':
+                        option = {
+                            label: Craft.t('app', 'Past year'),
+                            startDate: new Date(now.getFullYear(), now.getMonth(), now.getDate() - 365),
+                            endDate: today,
+                        };
+                        break;
+                }
+
+                $('<li/>')
+                    .append($('<a/>', {text: option.label})
+                        .data('startDate', option.startDate)
+                        .data('endDate', option.endDate)
+                        .data('startTime', option.startDate ? option.startDate.getTime() : null)
+                        .data('endTime', option.endDate ? option.endDate.getTime() : null))
+                    .appendTo($ul);
+            }
+
+            $('<hr/>').appendTo($menu);
+
+            var $flex = $('<div/>', {'class': 'flex flex-nowrap padded'}).appendTo($menu);
+            var $startDate = this.createDateField({label: Craft.t('app', 'From')}).appendTo($flex).find('input');
+            var $endDate = this.createDateField({label: Craft.t('app', 'To')}).appendTo($flex).find('input');
+
+            // prevent ESC keypresses in the date inputs from closing the menu
+            var $dateInputs = $startDate.add($endDate);
+            $dateInputs.on('keyup', function(ev) {
+                if (ev.keyCode === Garnish.ESC_KEY && $(this).data('datepicker').dpDiv.is(':visible')) {
+                    ev.stopPropagation();
+                }
+            })
+
+            // prevent clicks in the datepicker divs from closing the menu
+            $startDate.data('datepicker').dpDiv.on('mousedown', function(ev) {
+                ev.stopPropagation();
+            });
+            $endDate.data('datepicker').dpDiv.on('mousedown', function(ev) {
+                ev.stopPropagation();
+            });
+
+            var menu = new Garnish.Menu($menu, {
+                onOptionSelect: function(option) {
+                    var $option = $(option);
+                    $btn.text($option.text());
+                    menu.setPositionRelativeToAnchor();
+                    $menu.find('.sel').removeClass('sel');
+                    $option.addClass('sel');
+
+                    // Update the start/end dates
+                    $startDate.datepicker('setDate', $option.data('startDate'));
+                    $endDate.datepicker('setDate', $option.data('endDate'));
+
+                    config.onChange($option.data('startDate') || null, $option.data('endDate') || null);
+                }
+            });
+
+            $dateInputs.on('change', function() {
+                // Do the start & end dates match one of our options?
+                var startDate = $startDate.datepicker('getDate');
+                var endDate = $endDate.datepicker('getDate');
+                var startTime = startDate ? startDate.getTime() : null;
+                var endTime = endDate ? endDate.getTime() : null;
+
+                var $options = $ul.find('a');
+                var $option;
+                var foundOption = false;
+
+                for (var i = 0; i < $options.length; i++) {
+                    $option = $options.eq(i);
+                    if (
+                        startTime === ($option.data('startTime') || null) &&
+                        endTime === ($option.data('endTime') || null)
+                    ) {
+                        menu.selectOption($option[0]);
+                        foundOption = true;
+                        break;
+                    }
+                }
+
+                if (!foundOption) {
+                    $menu.find('.sel').removeClass('sel');
+                    $flex.addClass('sel');
+
+                    if (!startTime && !endTime) {
+                        $btn.text(Craft.t('app', 'All'));
+                    } else if (startTime && endTime) {
+                        $btn.text($startDate.val() + ' - ' + $endDate.val());
+                    } else if (startTime) {
+                        $btn.text(Craft.t('app', 'From {date}', {date: $startDate.val()}));
+                    } else {
+                        $btn.text(Craft.t('app', 'To {date}', {date: $endDate.val()}));
+                    }
+                    menu.setPositionRelativeToAnchor();
+
+                    config.onChange(startDate, endDate);
+                }
+            });
+
+            menu.on('hide', function() {
+                $startDate.datepicker('hide');
+                $endDate.datepicker('hide');
+            });
+
+            var $btn = $('<div class="btn menubtn" data-icon="date"/>')
+                .text(Craft.t('app', 'All'));
+
+            new Garnish.MenuBtn($btn, menu);
+            return $btn;
         },
 
         createTimeInput: function(config) {

@@ -3,6 +3,8 @@
 
 {% requireEdition CraftPro %}
 
+{% do view.registerAssetBundle('craft\\web\\assets\\admintable\\AdminTableAsset') -%}
+
 {% set selectedSubnavItem = 'schemas' %}
 
 {% block actionButton %}
@@ -10,41 +12,28 @@
 {% endblock %}
 
 {% block content %}
-    {% set schemas = craft.app.gql.schemas %}
-
-    <div class="tablepane">
-        <table id="schemas" class="data fullwidth">
-            <thead>
-                <th scope="col">{{ "Name"|t('app') }}</th>
-                <th></th>
-            </thead>
-            <tbody>
-                {% for schema in schemas %}
-                    <tr data-id="{{ schema.id }}" data-name="{{ schema.name }}">
-                        <th scope="row" data-title="{{ 'Name'|t('app') }}">
-                            {% if schema.isPublic %}
-                                <a href="{{ url('graphql/schemas/public') }}">{{ 'Public Schema'|t('app') }}</a>
-                            {% else %}
-                                <a href="{{ url("graphql/schemas/#{schema.id}") }}">{{ schema.name|t('site') }}</a>
-                            {% endif %}
-                        </th>
-                        <td class="thin">
-                            {% if not schema.isPublic %}
-                                <a class="delete icon" title="{{ 'Delete'|t('app') }}" role="button"></a>
-                            {% endif %}
-                        </td>
-                    </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
+    <div id="schemas-vue-admin-table"></div>
 {% endblock %}
 
+{% set tableData = [] %}
+{% for schema in craft.app.gql.schemas %}
+	{% set tableData = tableData|merge([{
+        id: schema.id,
+        title: schema.isPublic ? 'Public Schema'|t('app') : schema.name|t('site'),
+        url: schema.isPublic ? url('graphql/schemas/public') : url("graphql/schemas/#{schema.id}"),
+        _showDelete: not schema.isPublic
+    }]) %}
+{% endfor %}
 
 {% js %}
-    new Craft.AdminTable({
-        tableSelector: '#schemas',
-        sortable: false,
-        deleteAction: 'graphql/delete-schema'
-    });
+var columns = [
+    { name: '__slot:title', title: Craft.t('app', 'Name') },
+];
+
+new Craft.VueAdminTable({
+    columns: columns,
+    container: '#schemas-vue-admin-table',
+    deleteAction: 'graphql/delete-schema',
+    tableData: {{ tableData|json_encode|raw }}
+});
 {% endjs %}

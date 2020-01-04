@@ -20,7 +20,6 @@ use craft\errors\WrongEditionException;
 use craft\events\EditionChangeEvent;
 use craft\helpers\App;
 use craft\helpers\Db;
-use craft\helpers\StringHelper;
 use craft\i18n\Formatter;
 use craft\i18n\I18N;
 use craft\i18n\Locale;
@@ -210,7 +209,7 @@ trait ApplicationTrait
      * Sets the target application language.
      *
      * @param bool|null $useUserLanguage Whether the user's preferred language should be used.
-     * If null, it will be based on whether it's a CP or console request.
+     * If null, the user’s preferred language will be used if this is a control panel request or a console request.
      */
     public function updateTargetLanguage(bool $useUserLanguage = null)
     {
@@ -411,7 +410,7 @@ trait ApplicationTrait
     {
         /** @var WebApplication|ConsoleApplication $this */
         $oldEdition = $this->getEdition();
-        $this->getProjectConfig()->set('system.edition', App::editionHandle($edition));
+        $this->getProjectConfig()->set('system.edition', App::editionHandle($edition), "Craft CMS edition change");
 
         // Fire an 'afterEditionChange' event
         /** @var WebRequest|ConsoleRequest $request */
@@ -623,11 +622,7 @@ trait ApplicationTrait
 
             $row['version'] = $version;
         }
-        unset($row['edition'], $row['name'], $row['timezone'], $row['on'], $row['siteName'], $row['siteUrl'], $row['build'], $row['releaseDate'], $row['track']);
-
-        if (Craft::$app->getDb()->getIsMysql() && isset($row['config'])) {
-            $row['config'] = StringHelper::decdec($row['config']);
-        }
+        unset($row['edition'], $row['name'], $row['timezone'], $row['on'], $row['siteName'], $row['siteUrl'], $row['build'], $row['releaseDate'], $row['track'], $row['config']);
 
         return $this->_info = new Info($row);
     }
@@ -687,7 +682,6 @@ trait ApplicationTrait
             'version' => $info->version,
             'schemaVersion' => $info->schemaVersion,
             'maintenance' => $info->maintenance,
-            'config' => Db::prepareValueForDb($info->config),
             'configMap' => Db::prepareValueForDb($info->configMap),
             'fieldVersion' => $info->fieldVersion,
         ];
@@ -697,15 +691,6 @@ trait ApplicationTrait
             unset($attributes['config'], $attributes['configMap']);
         }
 
-        if (
-            isset($attributes['config']) &&
-            (
-                !mb_check_encoding($attributes['config'], 'UTF-8') ||
-                (Craft::$app->getDb()->getIsMysql() && StringHelper::containsMb4($attributes['config']))
-            )
-        ) {
-            $attributes['config'] = 'base64:' . base64_encode($attributes['config']);
-        }
 
         // TODO: Remove this after the next breakpoint
         if (version_compare($info['version'], '3.0', '<')) {
@@ -1575,20 +1560,20 @@ trait ApplicationTrait
             ->onRemove(Globals::CONFIG_GLOBALSETS_KEY . '.{uid}', [$globalsService, 'handleDeletedGlobalSet']);
         Event::on(Fields::class, Fields::EVENT_AFTER_DELETE_FIELD, [$globalsService, 'pruneDeletedField']);
 
-        // Sections
-        $sectionsService = $this->getSections();
-        $projectConfigService
-            ->onAdd(Sections::CONFIG_SECTIONS_KEY . '.{uid}', [$sectionsService, 'handleChangedSection'])
-            ->onUpdate(Sections::CONFIG_SECTIONS_KEY . '.{uid}', [$sectionsService, 'handleChangedSection'])
-            ->onRemove(Sections::CONFIG_SECTIONS_KEY . '.{uid}', [$sectionsService, 'handleDeletedSection']);
-        Event::on(Sites::class, Sites::EVENT_AFTER_DELETE_SITE, [$sectionsService, 'pruneDeletedSite']);
-
         // Entry Types
+        $sectionsService = $this->getSections();
         $projectConfigService
             ->onAdd(Sections::CONFIG_SECTIONS_KEY . '.{uid}.' . Sections::CONFIG_ENTRYTYPES_KEY . '.{uid}', [$sectionsService, 'handleChangedEntryType'])
             ->onUpdate(Sections::CONFIG_SECTIONS_KEY . '.{uid}.' . Sections::CONFIG_ENTRYTYPES_KEY . '.{uid}', [$sectionsService, 'handleChangedEntryType'])
             ->onRemove(Sections::CONFIG_SECTIONS_KEY . '.{uid}.' . Sections::CONFIG_ENTRYTYPES_KEY . '.{uid}', [$sectionsService, 'handleDeletedEntryType']);
         Event::on(Fields::class, Fields::EVENT_AFTER_DELETE_FIELD, [$sectionsService, 'pruneDeletedField']);
+
+        // Sections
+        $projectConfigService
+            ->onAdd(Sections::CONFIG_SECTIONS_KEY . '.{uid}', [$sectionsService, 'handleChangedSection'])
+            ->onUpdate(Sections::CONFIG_SECTIONS_KEY . '.{uid}', [$sectionsService, 'handleChangedSection'])
+            ->onRemove(Sections::CONFIG_SECTIONS_KEY . '.{uid}', [$sectionsService, 'handleDeletedSection']);
+        Event::on(Sites::class, Sites::EVENT_AFTER_DELETE_SITE, [$sectionsService, 'pruneDeletedSite']);
 
         // GraphQL Scopes
         $gqlService = $this->getGql();

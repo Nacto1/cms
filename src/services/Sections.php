@@ -513,7 +513,7 @@ class Sections extends Component
             // -----------------------------------------------------------------
 
             $configPath = self::CONFIG_SECTIONS_KEY . '.' . $section->uid;
-            $projectConfig->set($configPath, $configData);
+            $projectConfig->set($configPath, $configData, "Save section “{$section->handle}”");
 
             if ($isNewSection) {
                 $section->id = Db::idByUid(Table::SECTIONS, $section->uid);
@@ -826,7 +826,7 @@ class Sections extends Component
         }
 
         // Remove the section from the project config
-        Craft::$app->getProjectConfig()->remove(self::CONFIG_SECTIONS_KEY . '.' . $section->uid);
+        Craft::$app->getProjectConfig()->remove(self::CONFIG_SECTIONS_KEY . '.' . $section->uid, "Delete the “{$section->handle}” section");
         return true;
     }
 
@@ -910,7 +910,7 @@ class Sections extends Component
         // Loop through the sections and prune the UID from field layouts.
         if (is_array($sections)) {
             foreach ($sections as $sectionUid => $sectionGroup) {
-                $projectConfig->remove(self::CONFIG_SECTIONS_KEY . '.' . $sectionUid . '.siteSettings.' . $siteUid);
+                $projectConfig->remove(self::CONFIG_SECTIONS_KEY . '.' . $sectionUid . '.siteSettings.' . $siteUid, 'Remove section settings that belong to a site being deleted');
             }
         }
     }
@@ -942,7 +942,7 @@ class Sections extends Component
                             foreach ($entryType['fieldLayouts'] as $layoutUid => $layout) {
                                 if (!empty($layout['tabs'])) {
                                     foreach ($layout['tabs'] as $tabUid => $tab) {
-                                        $projectConfig->remove(self::CONFIG_SECTIONS_KEY . '.' . $sectionUid . '.' . self::CONFIG_ENTRYTYPES_KEY . '.' . $entryTypeUid . '.fieldLayouts.' . $layoutUid . '.tabs.' . $tabUid . '.fields.' . $fieldUid);
+                                        $projectConfig->remove(self::CONFIG_SECTIONS_KEY . '.' . $sectionUid . '.' . self::CONFIG_ENTRYTYPES_KEY . '.' . $entryTypeUid . '.fieldLayouts.' . $layoutUid . '.tabs.' . $tabUid . '.fields.' . $fieldUid, 'Prune deleted field');
                                     }
                                 }
                             }
@@ -1160,7 +1160,7 @@ class Sections extends Component
         }
 
         $configPath = self::CONFIG_SECTIONS_KEY . '.' . $section->uid . '.' . self::CONFIG_ENTRYTYPES_KEY . '.' . $entryType->uid;
-        $projectConfig->set($configPath, $configData);
+        $projectConfig->set($configPath, $configData, "Save entry type plugin “{$entryType->handle}”");
 
         if ($isNewEntryType) {
             $entryType->id = Db::idByUid(Table::ENTRYTYPES, $entryType->uid);
@@ -1313,10 +1313,9 @@ class Sections extends Component
                 }
 
                 $configPath = self::CONFIG_SECTIONS_KEY . '.' . $sectionRecord->uid . '.' . self::CONFIG_ENTRYTYPES_KEY . '.' . $entryTypeUid;
-                $projectConfig->set($configPath . '.sortOrder', $entryTypeOrder + 1);
+                $projectConfig->set($configPath . '.sortOrder', $entryTypeOrder + 1, 'Reorder entry types');
             }
         }
-
 
         return true;
     }
@@ -1371,7 +1370,7 @@ class Sections extends Component
         $section = $entryType->getSection();
         $sectionUid = $section->uid;
 
-        Craft::$app->getProjectConfig()->remove(self::CONFIG_SECTIONS_KEY . '.' . $sectionUid . '.' . self::CONFIG_ENTRYTYPES_KEY . '.' . $entryTypeUid);
+        Craft::$app->getProjectConfig()->remove(self::CONFIG_SECTIONS_KEY . '.' . $sectionUid . '.' . self::CONFIG_ENTRYTYPES_KEY . '.' . $entryTypeUid, "Delete the “{$entryType->handle}” entry type");
         return true;
     }
 
@@ -1556,7 +1555,7 @@ class Sections extends Component
         // (Re)save it with an updated title, slug, and URI format.
         $entry->setScenario(Element::SCENARIO_ESSENTIALS);
         if (!Craft::$app->getElements()->saveElement($entry)) {
-            throw new Exception('Couldn’t save single entry due to validation errors on the slug and/or URI');
+            throw new Exception('Couldn’t save single entry due to validation errors on the slug and/or URI: ' . $section->name);
         }
 
         // Delete any other entries in the section

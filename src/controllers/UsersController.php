@@ -93,6 +93,7 @@ class UsersController extends Controller
      */
     protected $allowAnonymous = [
         'get-remaining-session-time' => self::ALLOW_ANONYMOUS_LIVE | self::ALLOW_ANONYMOUS_OFFLINE,
+        'session-info' => self::ALLOW_ANONYMOUS_LIVE | self::ALLOW_ANONYMOUS_OFFLINE,
         'login' => self::ALLOW_ANONYMOUS_LIVE | self::ALLOW_ANONYMOUS_OFFLINE,
         'logout' => self::ALLOW_ANONYMOUS_LIVE | self::ALLOW_ANONYMOUS_OFFLINE,
         'save-user' => self::ALLOW_ANONYMOUS_LIVE,
@@ -129,7 +130,7 @@ class UsersController extends Controller
     {
         if (!Craft::$app->getUser()->getIsGuest()) {
             // Too easy.
-            return $this->_handleSuccessfulLogin(false);
+            return $this->_handleSuccessfulLogin();
         }
 
         if (!Craft::$app->getRequest()->getIsPost()) {
@@ -171,7 +172,7 @@ class UsersController extends Controller
             return $this->_handleLoginFailure(null, $user);
         }
 
-        return $this->_handleSuccessfulLogin(true);
+        return $this->_handleSuccessfulLogin();
     }
 
     /**
@@ -210,24 +211,49 @@ class UsersController extends Controller
             return null;
         }
 
-        $session->setNotice(Craft::t('app', 'Logged in.'));
-
-        return $this->_handleSuccessfulLogin(true);
+        return $this->_handleSuccessfulLogin();
     }
 
     /**
      * Returns how many seconds are left in the current user session.
      *
      * @return Response
+     * @deprecated in 3.4.0. Use [[actionSessionInfo()]] instead.
      */
     public function actionGetRemainingSessionTime(): Response
     {
+        Craft::$app->getDeprecator()->log(__METHOD__, 'The users/get-remaining-session-time action is deprecated. Use users/session-info instead.');
+        return $this->runAction('session-info');
+    }
+
+    /**
+     * Returns information about the current user session, if any.
+     *
+     * @return Response
+     * @since 3.4.0
+     */
+    public function actionSessionInfo(): Response
+    {
         $this->requireAcceptsJson();
 
-        $return = ['timeout' => Craft::$app->getUser()->getRemainingSessionTime()];
+        $userService = Craft::$app->getUser();
+        /** @var User|null $user */
+        $user = $userService->getIdentity();
+
+        $return = [
+            'isGuest' => $user === null,
+            'timeout' => $userService->getRemainingSessionTime(),
+        ];
 
         if (Craft::$app->getConfig()->getGeneral()->enableCsrfProtection) {
             $return['csrfTokenValue'] = Craft::$app->getRequest()->getCsrfToken();
+        }
+
+        if ($user !== null) {
+            $return['id'] = $user->id;
+            $return['uid'] = $user->uid;
+            $return['username'] = $user->username;
+            $return['email'] = $user->email;
         }
 
         return $this->asJson($return);
@@ -868,7 +894,7 @@ class UsersController extends Controller
      * - A normal user with user-administration permissions registering a new user account.
      * - A normal user with user-administration permissions editing an existing user account.
      * - A guest registering a new user account ("public registration").
-     * This action behaves the same regardless of whether it was requested from the Control Panel or the front-end site.
+     * This action behaves the same regardless of whether it was requested from the control panel or the front-end site.
      *
      * @return Response|null
      * @throws NotFoundHttpException if the requested user cannot be found
@@ -1609,10 +1635,9 @@ class UsersController extends Controller
      * Redirects the user after a successful login attempt, or if they visited the Login page while they were already
      * logged in.
      *
-     * @param bool $setNotice Whether a flash notice should be set, if this isn't an Ajax request.
      * @return Response
      */
-    private function _handleSuccessfulLogin(bool $setNotice): Response
+    private function _handleSuccessfulLogin(): Response
     {
         // Get the return URL
         $userSession = Craft::$app->getUser();
@@ -1634,10 +1659,6 @@ class UsersController extends Controller
             }
 
             return $this->asJson($return);
-        }
-
-        if ($setNotice) {
-            Craft::$app->getSession()->setNotice(Craft::t('app', 'Logged in.'));
         }
 
         return $this->redirectToPostedUrl($userSession->getIdentity(), $returnUrl);
@@ -1941,7 +1962,7 @@ class UsersController extends Controller
     }
 
     /**
-     * Redirects a user to the `postCpLoginRedirect` location, if they have access to the Control Panel.
+     * Redirects a user to the `postCpLoginRedirect` location, if they have access to the control panel.
      *
      * @param User $user The user to redirect
      * @return Response|null

@@ -15,11 +15,14 @@ use craft\db\Query;
 use craft\db\Table;
 use craft\elements\db\ElementQuery;
 use craft\elements\db\ElementQueryInterface;
+use craft\elements\exporters\Expanded;
+use craft\elements\exporters\Raw;
 use craft\events\DefineEagerLoadingMapEvent;
 use craft\events\ElementStructureEvent;
 use craft\events\ModelEvent;
 use craft\events\RegisterElementActionsEvent;
 use craft\events\RegisterElementDefaultTableAttributesEvent;
+use craft\events\RegisterElementExportersEvent;
 use craft\events\RegisterElementHtmlAttributesEvent;
 use craft\events\RegisterElementSearchableAttributesEvent;
 use craft\events\RegisterElementSortOptionsEvent;
@@ -59,7 +62,7 @@ use yii\validators\Validator;
  * @property ElementQueryInterface $ancestors The element’s ancestors
  * @property ElementQueryInterface $children The element’s children
  * @property string $contentTable The name of the table this element’s content is stored in
- * @property string|null $cpEditUrl The element’s CP edit URL
+ * @property string|null $cpEditUrl The element’s edit URL in the control panel
  * @property ElementQueryInterface $descendants The element’s descendants
  * @property string $editorHtml The HTML for the element’s editor HUD
  * @property string $fieldColumnPrefix The field column prefix this element’s content uses
@@ -69,7 +72,7 @@ use yii\validators\Validator;
  * @property array $fieldValues The element’s normalized custom field values, indexed by their handles
  * @property bool $hasDescendants Whether the element has descendants
  * @property bool $hasFreshContent Whether the element’s content is "fresh" (unsaved and without validation errors)
- * @property array $htmlAttributes Any attributes that should be included in the element’s DOM representation in the Control Panel
+ * @property array $htmlAttributes Any attributes that should be included in the element’s DOM representation in the control panel
  * @property bool $isEditable Whether the current user can edit the element
  * @property Markup|null $link An anchor pre-filled with this element’s URL and title
  * @property Element|null $next The next element relative to this one, from a given set of criteria
@@ -142,6 +145,12 @@ abstract class Element extends Component implements ElementInterface
     const EVENT_REGISTER_ACTIONS = 'registerActions';
 
     /**
+     * @event RegisterElementExportersEvent The event that is triggered when registering the available exporters for the element type.
+     * @since 3.4.0
+     */
+    const EVENT_REGISTER_EXPORTERS = 'registerExporters';
+
+    /**
      * @event RegisterElementSearchableAttributesEvent The event that is triggered when registering the searchable attributes for the element type.
      */
     const EVENT_REGISTER_SEARCHABLE_ATTRIBUTES = 'registerSearchableAttributes';
@@ -179,7 +188,7 @@ abstract class Element extends Component implements ElementInterface
     const EVENT_SET_TABLE_ATTRIBUTE_HTML = 'setTableAttributeHtml';
 
     /**
-     * @event RegisterElementHtmlAttributesEvent The event that is triggered when registering the HTML attributes that should be included in the element’s DOM representation in the Control Panel.
+     * @event RegisterElementHtmlAttributesEvent The event that is triggered when registering the HTML attributes that should be included in the element’s DOM representation in the control panel.
      */
     const EVENT_REGISTER_HTML_ATTRIBUTES = 'registerHtmlAttributes';
 
@@ -483,6 +492,23 @@ abstract class Element extends Component implements ElementInterface
     /**
      * @inheritdoc
      */
+    public static function exporters(string $source): array
+    {
+        $exporters = static::defineExporters($source);
+
+        // Give plugins a chance to modify them
+        $event = new RegisterElementExportersEvent([
+            'source' => $source,
+            'exporters' => $exporters
+        ]);
+        Event::trigger(static::class, self::EVENT_REGISTER_EXPORTERS, $event);
+
+        return $event->exporters;
+    }
+
+    /**
+     * @inheritdoc
+     */
     public static function searchableAttributes(): array
     {
         $attributes = static::defineSearchableAttributes();
@@ -509,15 +535,32 @@ abstract class Element extends Component implements ElementInterface
     }
 
     /**
-     * Defines the available element actions for a given source (if one is provided).
+     * Defines the available element actions for a given source.
      *
      * @param string|null $source The selected source’s key, if any.
      * @return array The available element actions.
      * @see actions()
+     * @todo this shouldn't allow null in Craft 4
      */
     protected static function defineActions(string $source = null): array
     {
         return [];
+    }
+
+    /**
+     * Defines the available element exporters for a given source.
+     *
+     * @param string|null $source The selected source’s key
+     * @return array The available element exporters
+     * @see exporters()
+     * @since 3.4.0
+     */
+    protected static function defineExporters(string $source): array
+    {
+        return [
+            Raw::class,
+            Expanded::class,
+        ];
     }
 
     /**
@@ -1992,14 +2035,18 @@ abstract class Element extends Component implements ElementInterface
             return [self::ATTR_STATUS_MODIFIED, Craft::t('app', 'Modified in draft')];
         }
         if ($outdated && !$modified) {
-            return [self::ATTR_STATUS_OUTDATED, Craft::t('app', 'Modified in source {type}', [
-                'type' => static::lowerDisplayName(),
-            ])];
+            return [
+                self::ATTR_STATUS_OUTDATED, Craft::t('app', 'Modified in source {type}', [
+                    'type' => static::lowerDisplayName(),
+                ])
+            ];
         }
         if ($outdated && $modified) {
-            return [self::ATTR_STATUS_CONFLICTED, Craft::t('app', 'Modified in draft and source {type}', [
-                'type' => static::lowerDisplayName(),
-            ])];
+            return [
+                self::ATTR_STATUS_CONFLICTED, Craft::t('app', 'Modified in draft and source {type}', [
+                    'type' => static::lowerDisplayName(),
+                ])
+            ];
         }
         return null;
     }
@@ -2115,14 +2162,18 @@ abstract class Element extends Component implements ElementInterface
             return [self::ATTR_STATUS_MODIFIED, Craft::t('app', 'Modified in draft')];
         }
         if ($outdated && !$modified) {
-            return [self::ATTR_STATUS_OUTDATED, Craft::t('app', 'Modified in source {type}', [
-                'type' => static::lowerDisplayName(),
-            ])];
+            return [
+                self::ATTR_STATUS_OUTDATED, Craft::t('app', 'Modified in source {type}', [
+                    'type' => static::lowerDisplayName(),
+                ])
+            ];
         }
         if ($outdated && $modified) {
-            return [self::ATTR_STATUS_CONFLICTED, Craft::t('app', 'Modified in draft and source {type}', [
-                'type' => static::lowerDisplayName(),
-            ])];
+            return [
+                self::ATTR_STATUS_CONFLICTED, Craft::t('app', 'Modified in draft and source {type}', [
+                    'type' => static::lowerDisplayName(),
+                ])
+            ];
         }
         return null;
     }
@@ -2829,7 +2880,7 @@ abstract class Element extends Component implements ElementInterface
     }
 
     /**
-     * Returns any attributes that should be included in the element’s DOM representation in the Control Panel.
+     * Returns any attributes that should be included in the element’s DOM representation in the control panel.
      *
      * @param string $context The context that the element is being rendered in ('index', 'field', etc.)
      * @return array

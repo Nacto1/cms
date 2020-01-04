@@ -13,7 +13,7 @@ use craft\events\RegisterTemplateRootsEvent;
 use craft\events\TemplateEvent;
 use craft\helpers\ElementHelper;
 use craft\helpers\FileHelper;
-use craft\helpers\Html as HtmlHelper;
+use craft\helpers\Html;
 use craft\helpers\Json;
 use craft\helpers\Path;
 use craft\helpers\StringHelper;
@@ -35,7 +35,6 @@ use Twig\Template as TwigTemplate;
 use yii\base\Arrayable;
 use yii\base\Exception;
 use yii\base\Model;
-use yii\helpers\Html;
 use yii\web\AssetBundle as YiiAssetBundle;
 use yii\web\Response as WebResponse;
 
@@ -44,7 +43,7 @@ use yii\web\Response as WebResponse;
  * @property string $templateMode the current template mode (either `site` or `cp`)
  * @property string $templatesPath the base path that templates should be found in
  * @property string|null $namespace the active namespace
- * @property-read array $cpTemplateRoots any registered CP template roots
+ * @property-read array $cpTemplateRoots any registered control panel template roots
  * @property-read array $siteTemplateRoots any registered site template roots
  * @property-read bool $isRenderingPageTemplate whether a page template is currently being rendered
  * @property-read bool $isRenderingTemplate whether a template is currently being rendered
@@ -62,7 +61,7 @@ class View extends \yii\web\View
     // =========================================================================
 
     /**
-     * @event RegisterTemplateRootsEvent The event that is triggered when registering CP template roots
+     * @event RegisterTemplateRootsEvent The event that is triggered when registering control panel template roots
      */
     const EVENT_REGISTER_CP_TEMPLATE_ROOTS = 'registerCpTemplateRoots';
 
@@ -122,7 +121,7 @@ class View extends \yii\web\View
     private static $_elementThumbSizes = [32, 64, 120, 240];
 
     /**
-     * @var Environment|null The Twig environment instance used for CP templates
+     * @var Environment|null The Twig environment instance used for control panel templates
      */
     private $_cpTwig;
 
@@ -767,7 +766,7 @@ class View extends \yii\web\View
      * - templates/SiteHandle/...
      * - templates/...
      *
-     * And finally, if this is a Control Panel request _and_ the template name includes multiple segments _and_ the first
+     * And finally, if this is a control panel request _and_ the template name includes multiple segments _and_ the first
      * segment of the template name matches a plugin’s handle, then Craft will look for a template named with the
      * remaining segments within that plugin’s templates/ subfolder.
      *
@@ -785,7 +784,7 @@ class View extends \yii\web\View
      *     - templates/foo/bar.twig
      *     - templates/foo/bar/index.html
      *     - templates/foo/bar/index.twig
-     * - Control Panel requests:
+     * - Control panel requests:
      *     - vendor/craftcms/cms/src/templates/foo/bar
      *     - vendor/craftcms/cms/src/templates/foo/bar.html
      *     - vendor/craftcms/cms/src/templates/foo/bar.twig
@@ -897,7 +896,7 @@ class View extends \yii\web\View
     }
 
     /**
-     * Returns any registered CP template roots.
+     * Returns any registered control panel template roots.
      *
      * @return array
      */
@@ -1130,7 +1129,7 @@ class View extends \yii\web\View
 
     /**
      * Translates messages for a given translation category, so they will be
-     * available for `Craft.t()` calls in the Control Panel.
+     * available for `Craft.t()` calls in the control panel.
      * Note this should always be called *before* any JavaScript is registered
      * that will need to use the translations, unless the JavaScript is
      * registered at [[self::POS_READY]].
@@ -1918,7 +1917,7 @@ JS;
     }
 
     /**
-     * Returns the HTML for an element in the CP.
+     * Returns the HTML for an element in the control panel.
      *
      * @param array &$context
      * @return string|null
@@ -2003,8 +2002,10 @@ JS;
 
         $html = '<div';
 
+        // todo: swap this with Html::renderTagAttributse in 4.0
+        // (that will cause a couple breaking changes since `null` means "don't show" and `true` means "no value".)
         foreach ($htmlAttributes as $attribute => $value) {
-            $html .= ' ' . $attribute . ($value !== null ? '="' . HtmlHelper::encode($value) . '"' : '');
+            $html .= ' ' . $attribute . ($value !== null ? '="' . Html::encode($value) . '"' : '');
         }
 
         if (ElementHelper::isElementEditable($element)) {
@@ -2033,16 +2034,21 @@ JS;
 
         $html .= '<span class="title">';
 
-        $encodedLabel = HtmlHelper::encode($label);
+        $encodedLabel = Html::encode($label);
 
-        if ($context['context'] === 'index' && !$element->trashed && ($cpEditUrl = $element->getCpEditUrl())) {
+        if (
+            $context['context'] === 'index' &&
+            !$element->trashed &&
+            ($cpEditUrl = $element->getCpEditUrl()) &&
+            $element->getIsEditable()
+        ) {
             if ($element->getIsDraft()) {
                 $cpEditUrl = UrlHelper::urlWithParams($cpEditUrl, ['draftId' => $element->draftId]);
             } else if ($element->getIsRevision()) {
                 $cpEditUrl = UrlHelper::urlWithParams($cpEditUrl, ['revisionId' => $element->revisionId]);
             }
 
-            $cpEditUrl = HtmlHelper::encode($cpEditUrl);
+            $cpEditUrl = Html::encode($cpEditUrl);
             $html .= "<a href=\"{$cpEditUrl}\">{$encodedLabel}</a>";
         } else {
             $html .= $encodedLabel;
