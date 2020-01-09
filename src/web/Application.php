@@ -368,6 +368,7 @@ class Application extends \yii\web\Application
     protected function ensureResourcePathExists()
     {
         if (defined('CRAFT_EPHEMERAL') && CRAFT_EPHEMERAL === true) {
+            // skip the resource path creation
             return;
         }
 
