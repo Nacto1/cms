@@ -1,5 +1,38 @@
 # Release Notes for Craft CMS 3.x
 
+## Unreleased
+
+### Added
+- Added the Queue Manager utility. ([#2753](https://github.com/craftcms/cms/issues/2753), [#3489](https://github.com/craftcms/cms/issues/3489))
+- Added the `queue/release` action. ([#4777](https://github.com/craftcms/cms/issues/4777))
+- Added `craft\base\Model::defineRules()`. Models that define a `rules()` method should use `defineRules()` instead, so `EVENT_DEFINE_RULES` event handlers have a chance to modify them.
+- Added `craft\base\UtilityInterface::footerHtml()`.
+- Added `craft\base\UtilityInterface::toolbarHtml()`.
+- Added `craft\queue\Command::actionRelease()`.
+- Added `craft\queue\QueueInterface::getJobDetails()`.
+- Added `craft\queue\QueueInterface::getTotalJobs()`.
+- Added `craft\queue\QueueInterface::releaseAll()`.
+- Added `craft\queue\QueueInterface::retryAll()`.
+- Added `craft\utilities\QueueManager`.
+- Added `craft\web\assets\queuemanager\QueueManagerAsset`.
+
+### Changed
+- The queue info in the global sidebar no longer shows an HUD with job details when clicked; the user is now brought to the new Queue Manager utility, if they have permission to view it. ([#4040](https://github.com/craftcms/cms/issues/4040))
+- Element index pages once again link to elements’ edit pages even if `getIsEditable()` returns `false`.
+- “Edit” Asset pages now have a read-only mode for assets that the user is allowed to view but not modify.
+- Replaced the deprecated zend-feed library with laminas-feed. ([#5400](https://github.com/craftcms/cms/issues/5400))
+- Updated yii2-queue to 2.3.
+
+### Removed
+- Removed `craft\events\SetStatusEvent`.
+
+### Fixed
+- Fixed a bug where the control panel UI could come to a grinding halt if a large number of jobs were in the queue. ([#4533](https://github.com/craftcms/cms/issues/4533))
+
+### Fixed
+- Fixed an error that occurred when updating from Craft 3.0. ([#5391](https://github.com/craftcms/cms/issues/5391))
+- Fixed an error that occurred when updating from Craft 2. ([#5402](https://github.com/craftcms/cms/issues/5402))
+
 ## 3.4.0-beta.5 - 2020-01-02
 
 ### Added
@@ -310,6 +343,10 @@
 
 ### Fixed
 - Fixed a bug where entry revision menus could list sites that the entry didn’t support. ([#5387](https://github.com/craftcms/cms/issues/5387))
+- Fixed a PHP warning that occurred when creating a new database backup. ([#5393](https://github.com/craftcms/cms/issues/5393))
+
+### Security
+- Fixed an XSS vulnerability.
 
 ## 3.3.19 - 2019-12-30
 

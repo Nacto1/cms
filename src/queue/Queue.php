@@ -9,10 +9,12 @@ namespace craft\queue;
 
 use Craft;
 use craft\db\Table;
+use craft\helpers\ArrayHelper;
 use craft\helpers\Db;
 use craft\helpers\Json;
 use craft\helpers\UrlHelper;
 use yii\base\Exception;
+use yii\base\InvalidArgumentException;
 use yii\db\Query;
 use yii\queue\cli\Signal;
 use yii\queue\ExecEvent;
@@ -187,9 +189,7 @@ class Queue extends \yii\queue\cli\Queue implements QueueInterface
     }
 
     /**
-     * Re-adds all failed jobs to the queue
-     *
-     * @since 3.1.21
+     * @inheritdoc
      */
     public function retryAll()
     {
@@ -223,6 +223,16 @@ class Queue extends \yii\queue\cli\Queue implements QueueInterface
     {
         Craft::$app->getDb()->createCommand()
             ->delete(Table::QUEUE, ['id' => $id])
+            ->execute();
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function releaseAll()
+    {
+        Craft::$app->getDb()->createCommand()
+            ->delete(Table::QUEUE, [])
             ->execute();
     }
 
@@ -322,6 +332,47 @@ class Queue extends \yii\queue\cli\Queue implements QueueInterface
     /**
      * @inheritdoc
      */
+    public function getJobDetails(string $id): array
+    {
+        $result = (new Query())
+            ->from(Table::QUEUE)
+            ->where(['id' => $id])
+            ->one();
+
+        if ($result === false) {
+            throw new InvalidArgumentException("Invalid job ID: $id");
+        }
+
+        $formatter = Craft::$app->getFormatter();
+        $job = is_resource($result['job']) ? stream_get_contents($result['job']) : $this->serializer->unserialize($result['job']);
+
+        return ArrayHelper::filterEmptyStringsFromArray([
+            'status' => $this->_status($result),
+            'error' => $result['error'] ?? '',
+            'progress' => $result['progress'],
+            'description' => $result['description'],
+            'job' => $job,
+            'ttr' => (int)$result['ttr'],
+            'Priority' => $result['priority'],
+            'Pushed at' => $result['timePushed'] ? $formatter->asDatetime($result['timePushed']) : '',
+            'Updated at' => $result['timeUpdated'] ? $formatter->asDatetime($result['timeUpdated']) : '',
+            'Failed at' => $result['dateFailed'] ? $formatter->asDatetime($result['dateFailed']) : '',
+        ]);
+    }
+
+    /**
+     * @inheritdoc
+     */
+    public function getTotalJobs()
+    {
+        return $this->_createJobQuery()
+            ->where('[[timePushed]] <= :time - [[delay]]', [':time' => time()])
+            ->count();
+    }
+
+    /**
+     * @inheritdoc
+     */
     public function getJobInfo(int $limit = null): array
     {
         // Move expired messages into waiting list
@@ -353,15 +404,12 @@ class Queue extends \yii\queue\cli\Queue implements QueueInterface
     /**
      * @inheritdoc
      */
-    public function handleError($id, $job, $ttr, $attempt, $error)
+    public function handleError(ExecEvent $event)
     {
-        /** @var \Throwable $error */
         $this->_executingJobId = null;
 
-        if (parent::handleError($id, $job, $ttr, $attempt, $error)) {
-            // Log the exception
-            Craft::$app->getErrorHandler()->logException($error);
-
+        // Have we given up?
+        if (parent::handleError($event)) {
             // Mark the job as failed
             Craft::$app->getDb()->createCommand()
                 ->update(
@@ -369,9 +417,9 @@ class Queue extends \yii\queue\cli\Queue implements QueueInterface
                     [
                         'fail' => true,
                         'dateFailed' => Db::prepareDateForDb(new \DateTime()),
-                        'error' => $error->getMessage(),
+                        'error' => $event->error ? $event->error->getMessage() : null,
                     ],
-                    ['id' => $id],
+                    ['id' => $event->id],
                     [],
                     false
                 )

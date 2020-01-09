@@ -41,6 +41,7 @@
 {% set canDuplicateSource = canDuplicateSource ?? false %}
 {% set canAddAnother = canAddAnother ?? false %}
 {% set canDeleteSource = canDeleteSource ?? false %}
+{% set canEdit = canEdit ?? (canUpdateSource or canDuplicateSource or canAddAnother or saveDraftAction) %}
 
 {% set redirectUrl = redirectUrl ?? element.cpEditUrl %}
 {% set addAnotherRedirectUrl = addAnotherRedirectUrl ?? null %}
@@ -220,7 +221,7 @@
                 {% include "_includes/fields" with {
                     fields:  tab.getFields(),
                     element: element,
-                    static:  isRevision,
+                    static:  isRevision or not canEdit,
                     registerDeltas: true,
                 } only %}
             </div>
@@ -295,7 +296,7 @@
             {{ forms.lightswitchField({
                 status: element.getAttributeStatus('enabledForSite'),
                 fieldClass: not element.enabled ? 'hidden',
-                label: "Enabled for {site}"|t('app', { site: element.site.name|t('site') }),
+                label: "Enabled for {site}"|t('app', { site: element.site.name|t('site')|e('js') }),
                 id: 'enabledForSite',
                 name: 'enabledForSite',
                 on: element.enabledForSite,
