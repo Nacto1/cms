@@ -1,4 +1,4 @@
-/*!   - 2020-01-09 */
+/*!   - 2020-01-10 */
 (function($){
 
 /** global: Craft */
@@ -188,6 +188,16 @@ $.extend(Craft,
                 params = Craft.trim(params, '&?');
             }
 
+            // Was there already an anchor on the path?
+            var apos = path.indexOf('#');
+            if (apos !== -1) {
+                // Only keep it if the params didn't specify a new anchor
+                if (!anchor) {
+                    anchor = path.substr(apos + 1);
+                }
+                path = path.substr(0, apos);
+            }
+
             // Were there already any query string params in the path?
             var qpos = path.indexOf('?');
             if (qpos !== -1) {
@@ -197,7 +207,7 @@ $.extend(Craft,
 
             // Return path if it appears to be an absolute URL.
             if (path.search('://') !== -1 || path[0] === '/') {
-                return path + (params ? '?' + params : '');
+                return path + (params ? '?' + params : '') + (anchor ? '#' + anchor : '');
             }
 
             path = Craft.trim(path, '/');
@@ -1462,6 +1472,10 @@ $.extend($.fn,
 
                     if (Garnish.hasAttr(this, 'data-value')) {
                         thisSettings.value = $(this).attr('data-value');
+                    }
+
+                    if (Garnish.hasAttr(this, 'data-indeterminate-value')) {
+                        thisSettings.indeterminateValue = $(this).attr('data-indeterminate-value');
                     }
 
                     if (!$.data(this, 'lightswitch')) {
@@ -16919,7 +16933,8 @@ Craft.LightSwitch = Garnish.Base.extend(
         $innerContainer: null,
         $input: null,
         small: false,
-        on: null,
+        on: false,
+        indeterminate: false,
         dragger: null,
 
         dragStartMargin: null,
@@ -16948,10 +16963,11 @@ Craft.LightSwitch = Garnish.Base.extend(
             }
 
             this.on = this.$outerContainer.hasClass('on');
+            this.indeterminate = this.$outerContainer.hasClass('indeterminate');
 
             this.$outerContainer.attr({
-                'role': 'checkbox',
-                'aria-checked': (this.on ? 'true' : 'false')
+                role: 'checkbox',
+                'aria-checked': this.on ? 'true' : (this.indeterminate ? 'mixed' : 'false'),
             });
 
             this.addListener(this.$outerContainer, 'mousedown', '_onMouseDown');
@@ -16967,43 +16983,73 @@ Craft.LightSwitch = Garnish.Base.extend(
         },
 
         turnOn: function() {
-            this.$outerContainer.addClass('dragging');
+            var changed = !this.on;
 
+            this.on = true;
+            this.indeterminate = false;
+
+            this.$outerContainer.addClass('dragging');
             var animateCss = {};
             animateCss['margin-' + Craft.left] = 0;
             this.$innerContainer.velocity('stop').velocity(animateCss, Craft.LightSwitch.animationDuration, $.proxy(this, '_onSettle'));
 
             this.$input.val(this.settings.value);
             this.$outerContainer.addClass('on');
+            this.$outerContainer.removeClass('indeterminate');
             this.$outerContainer.attr('aria-checked', 'true');
 
-            if (this.on !== (this.on = true)) {
+            if (changed) {
                 this.onChange();
             }
         },
 
         turnOff: function() {
-            this.$outerContainer.addClass('dragging');
+            var changed = this.on || this.indeterminate;
 
+            this.on = false;
+            this.indeterminate = false;
+
+            this.$outerContainer.addClass('dragging');
             var animateCss = {};
             animateCss['margin-' + Craft.left] = this._getOffMargin();
             this.$innerContainer.velocity('stop').velocity(animateCss, Craft.LightSwitch.animationDuration, $.proxy(this, '_onSettle'));
 
             this.$input.val('');
             this.$outerContainer.removeClass('on');
+            this.$outerContainer.removeClass('indeterminate');
             this.$outerContainer.attr('aria-checked', 'false');
 
-            if (this.on !== (this.on = false)) {
+            if (changed) {
+                this.onChange();
+            }
+        },
+
+        turnIndeterminate: function() {
+            var changed = !this.indeterminate;
+
+            this.on = false;
+            this.indeterminate = true;
+
+            this.$outerContainer.addClass('dragging');
+            var animateCss = {};
+            animateCss['margin-' + Craft.left] = this._getOffMargin() / 2;
+            this.$innerContainer.velocity('stop').velocity(animateCss, Craft.LightSwitch.animationDuration, $.proxy(this, '_onSettle'));
+
+            this.$input.val(this.settings.indeterminateValue);
+            this.$outerContainer.removeClass('on');
+            this.$outerContainer.addClass('indeterminate');
+            this.$outerContainer.attr('aria-checked', 'mixed');
+
+            if (changed) {
                 this.onChange();
             }
         },
 
         toggle: function(event) {
-            if (!this.on) {
-                this.turnOn();
-            }
-            else {
+            if (this.indeterminate || this.on) {
                 this.turnOff();
+            } else {
+                this.turnOn();
             }
         },
 
@@ -17089,11 +17135,11 @@ Craft.LightSwitch = Garnish.Base.extend(
 
         _onDragStop: function() {
             var margin = this._getMargin();
+            console.log(margin);
 
             if (margin > (this._getOffMargin() / 2)) {
                 this.turnOn();
-            }
-            else {
+            } else {
                 this.turnOff();
             }
         },
@@ -17108,13 +17154,14 @@ Craft.LightSwitch = Garnish.Base.extend(
         },
 
         _getOffMargin: function() {
-            return (this.small ? -9 : -11);
+            return (this.small ? -10 : -12);
         }
 
     }, {
         animationDuration: 100,
         defaults: {
             value: '1',
+            indeterminateValue: '-',
             onChange: $.noop
         }
     });
@@ -17741,6 +17788,7 @@ Craft.Preview = Garnish.Base.extend(
         $targetBtn: null,
         $targetMenu: null,
         $iframe: null,
+        iframeLoaded: false,
         $tempInput: null,
         $fieldPlaceholder: null,
 
@@ -18024,12 +18072,14 @@ Craft.Preview = Garnish.Base.extend(
                     this.scrolllTop = 0;
                 } else {
                     sameHost = Craft.isSameHost(url);
-                    if (sameHost && this.$iframe && this.$iframe[0].contentWindow) {
+                    if (sameHost && this.iframeLoaded && this.$iframe && this.$iframe[0].contentWindow) {
                         var $doc = $(this.$iframe[0].contentWindow.document);
                         this.scrollLeft = $doc.scrollLeft();
                         this.scrollTop = $doc.scrollTop();
                     }
                 }
+
+                this.iframeLoaded = false;
 
                 var $iframe = $('<iframe/>', {
                     'class': 'lp-preview',
@@ -18037,13 +18087,14 @@ Craft.Preview = Garnish.Base.extend(
                     src: url,
                 });
 
-                if (!resetScroll && sameHost) {
-                    $iframe.on('load', function() {
+                $iframe.on('load', function() {
+                    this.iframeLoaded = true;
+                    if (!resetScroll && sameHost) {
                         var $doc = $($iframe[0].contentWindow.document);
                         $doc.scrollLeft(this.scrollLeft);
                         $doc.scrollTop(this.scrollTop);
-                    }.bind(this));
-                }
+                    }
+                }.bind(this));
 
                 if (this.$iframe) {
                     this.$iframe.replaceWith($iframe);
@@ -20875,9 +20926,7 @@ Craft.ui =
 
             $(
                 '<div class="lightswitch-container">' +
-                '<div class="label on"></div>' +
                 '<div class="handle"></div>' +
-                '<div class="label off"></div>' +
                 '</div>'
             ).appendTo($container);
 

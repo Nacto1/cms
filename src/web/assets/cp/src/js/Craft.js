@@ -185,6 +185,16 @@ $.extend(Craft,
                 params = Craft.trim(params, '&?');
             }
 
+            // Was there already an anchor on the path?
+            var apos = path.indexOf('#');
+            if (apos !== -1) {
+                // Only keep it if the params didn't specify a new anchor
+                if (!anchor) {
+                    anchor = path.substr(apos + 1);
+                }
+                path = path.substr(0, apos);
+            }
+
             // Were there already any query string params in the path?
             var qpos = path.indexOf('?');
             if (qpos !== -1) {
@@ -194,7 +204,7 @@ $.extend(Craft,
 
             // Return path if it appears to be an absolute URL.
             if (path.search('://') !== -1 || path[0] === '/') {
-                return path + (params ? '?' + params : '');
+                return path + (params ? '?' + params : '') + (anchor ? '#' + anchor : '');
             }
 
             path = Craft.trim(path, '/');
@@ -1459,6 +1469,10 @@ $.extend($.fn,
 
                     if (Garnish.hasAttr(this, 'data-value')) {
                         thisSettings.value = $(this).attr('data-value');
+                    }
+
+                    if (Garnish.hasAttr(this, 'data-indeterminate-value')) {
+                        thisSettings.indeterminateValue = $(this).attr('data-indeterminate-value');
                     }
 
                     if (!$.data(this, 'lightswitch')) {

@@ -5,9 +5,11 @@
 ### Added
 - Added the Queue Manager utility. ([#2753](https://github.com/craftcms/cms/issues/2753), [#3489](https://github.com/craftcms/cms/issues/3489))
 - Added the `queue/release` action. ([#4777](https://github.com/craftcms/cms/issues/4777))
+- Added the `|contains` Twig filter.
 - Added `craft\base\Model::defineRules()`. Models that define a `rules()` method should use `defineRules()` instead, so `EVENT_DEFINE_RULES` event handlers have a chance to modify them.
 - Added `craft\base\UtilityInterface::footerHtml()`.
 - Added `craft\base\UtilityInterface::toolbarHtml()`.
+- Added `craft\helpers\ArrayHelper::contains()`.
 - Added `craft\queue\Command::actionRelease()`.
 - Added `craft\queue\QueueInterface::getJobDetails()`.
 - Added `craft\queue\QueueInterface::getTotalJobs()`.
@@ -19,6 +21,7 @@
 ### Changed
 - The queue info in the global sidebar no longer shows an HUD with job details when clicked; the user is now brought to the new Queue Manager utility, if they have permission to view it. ([#4040](https://github.com/craftcms/cms/issues/4040))
 - Element index pages once again link to elements’ edit pages even if `getIsEditable()` returns `false`.
+- Edit Entry pages now show the entry’s status in the meta pane.
 - “Edit” Asset pages now have a read-only mode for assets that the user is allowed to view but not modify.
 - Unsaved entries’ URIs are now updated on each autosave. ([#4581](https://github.com/craftcms/cms/issues/4581))
 - Replaced the deprecated zend-feed library with laminas-feed. ([#5400](https://github.com/craftcms/cms/issues/5400))
@@ -29,8 +32,7 @@
 
 ### Fixed
 - Fixed a bug where the control panel UI could come to a grinding halt if a large number of jobs were in the queue. ([#4533](https://github.com/craftcms/cms/issues/4533))
-
-### Fixed
+- Fixed a bug where forward slashes weren’t being trimmed from database URLs’ `path` params when building the connection DSN string.
 - Fixed an error that occurred when updating from Craft 3.0. ([#5391](https://github.com/craftcms/cms/issues/5391))
 - Fixed an error that occurred when updating from Craft 2. ([#5402](https://github.com/craftcms/cms/issues/5402))
 
@@ -345,9 +347,15 @@
 ### Fixed
 - Fixed a bug where entry revision menus could list sites that the entry didn’t support. ([#5387](https://github.com/craftcms/cms/issues/5387))
 - Fixed a PHP warning that occurred when creating a new database backup. ([#5393](https://github.com/craftcms/cms/issues/5393))
+- Fixed an error that could occur when saving a Table field. ([#5398](https://github.com/craftcms/cms/issues/5398))
+- Fixed a bug where an unknown error was displayed when attempting to create an Asset folder without proper permissions. ([#5223](https://github.com/craftcms/cms/issues/5223))
+- Fixed a PHP warning that occurred sometimes when Craft was attempting to list resized versions of asset images. ([#5399](https://github.com/craftcms/cms/issues/5399))
+- Fixed a bug where preview target URLs weren’t getting generated correctly if they contained an anchor. ([#5404](https://github.com/craftcms/cms/issues/5404))
+- Fixed a bug where preview iframes could lose their scroll positions between refreshes. ([#5404](https://github.com/craftcms/cms/issues/5404))
+- Fixed a bug where Matrix blocks weren’t getting updated correctly when their field’s Propagation Method setting was changed via `project.yaml`. ([#5295](https://github.com/craftcms/cms/issues/5295))
 
 ### Security
-- Fixed an XSS vulnerability.
+- Fixed XSS vulnerabilities.
 
 ## 3.3.19 - 2019-12-30
 
